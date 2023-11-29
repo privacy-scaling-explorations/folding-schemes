@@ -191,9 +191,9 @@ where
         // Step 1: Get some challenges
         let gamma_scalar = C::ScalarField::from_le_bytes_mod_order(b"gamma");
         let beta_scalar = C::ScalarField::from_le_bytes_mod_order(b"beta");
-        _ = transcript.absorb(&gamma_scalar);
+        transcript.absorb(&gamma_scalar);
         let gamma: C::ScalarField = transcript.get_challenge();
-        _ = transcript.absorb(&beta_scalar);
+        transcript.absorb(&beta_scalar);
         let beta: Vec<C::ScalarField> = transcript.get_challenges(ccs.s);
 
         // Compute g(x)
@@ -243,7 +243,7 @@ where
 
         // Step 6: Get the folding challenge
         let rho_scalar = C::ScalarField::from_le_bytes_mod_order(b"rho");
-        _ = transcript.absorb(&rho_scalar);
+        transcript.absorb(&rho_scalar);
         let rho: C::ScalarField = transcript.get_challenge();
 
         // Step 7: Create the folded instance
@@ -290,9 +290,9 @@ where
         // Step 1: Get some challenges
         let gamma_scalar = C::ScalarField::from_le_bytes_mod_order(b"gamma");
         let beta_scalar = C::ScalarField::from_le_bytes_mod_order(b"beta");
-        _ = transcript.absorb(&gamma_scalar);
+        transcript.absorb(&gamma_scalar);
         let gamma: C::ScalarField = transcript.get_challenge();
-        _ = transcript.absorb(&beta_scalar);
+        transcript.absorb(&beta_scalar);
         let beta: Vec<C::ScalarField> = transcript.get_challenges(ccs.s);
 
         let vp_aux_info = VPAuxInfo::<C::ScalarField> {
@@ -352,7 +352,7 @@ where
 
         // Step 6: Get the folding challenge
         let rho_scalar = C::ScalarField::from_le_bytes_mod_order(b"rho");
-        _ = transcript.absorb(&C::ScalarField::from(rho_scalar));
+        transcript.absorb(&rho_scalar);
         let rho: C::ScalarField = transcript.get_challenge();
 
         // Step 7: Compute the folded instance
