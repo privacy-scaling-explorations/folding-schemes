@@ -14,6 +14,7 @@ use crate::Error;
 
 pub mod circuits;
 pub mod cyclefold;
+pub mod decider;
 pub mod ivc;
 pub mod nifs;
 pub mod traits;

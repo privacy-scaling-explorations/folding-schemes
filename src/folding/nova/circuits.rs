@@ -46,10 +46,10 @@ pub type CF2<C> = <<C as CurveGroup>::BaseField as Field>::BasePrimeField;
 /// represented non-natively over the constraint field.
 #[derive(Debug, Clone)]
 pub struct CommittedInstanceVar<C: CurveGroup> {
-    u: FpVar<C::ScalarField>,
-    x: Vec<FpVar<C::ScalarField>>,
-    cmE: NonNativeAffineVar<C::ScalarField>,
-    cmW: NonNativeAffineVar<C::ScalarField>,
+    pub u: FpVar<C::ScalarField>,
+    pub x: Vec<FpVar<C::ScalarField>>,
+    pub cmE: NonNativeAffineVar<C::ScalarField>,
+    pub cmW: NonNativeAffineVar<C::ScalarField>,
 }
 
 impl<C> AllocVar<CommittedInstance<C>, CF1<C>> for CommittedInstanceVar<C>
@@ -94,7 +94,7 @@ where
     /// CommittedInstance.hash.
     /// Returns `H(i, z_0, z_i, U_i)`, where `i` can be `i` but also `i+1`, and `U` is the
     /// `CommittedInstance`.
-    fn hash(
+    pub fn hash(
         self,
         crh_params: &CRHParametersVar<CF1<C>>,
         i: FpVar<CF1<C>>,

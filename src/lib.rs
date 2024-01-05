@@ -10,7 +10,6 @@ pub mod transcript;
 use transcript::Transcript;
 pub mod ccs;
 pub mod constants;
-pub mod decider;
 pub mod folding;
 pub mod frontend;
 pub mod pedersen;
