@@ -1,7 +1,46 @@
 use ark_ff::PrimeField;
-use ark_r1cs_std::fields::{fp::FpVar, FieldVar};
-use ark_relations::r1cs::SynthesisError;
-use std::marker::PhantomData;
+use ark_r1cs_std::{
+    alloc::{AllocVar, AllocationMode},
+    fields::{fp::FpVar, FieldVar},
+};
+use ark_relations::r1cs::{Namespace, SynthesisError};
+use std::{borrow::Borrow, marker::PhantomData};
+
+/// `VecFpVar` is a wrapper around a vector of `FpVar`s.
+/// It implements the `IntoIterator` trait and can hence be iterated over
+pub struct VecFpVar<F: PrimeField> {
+    pub vec: Vec<FpVar<F>>,
+}
+
+impl<F: PrimeField> IntoIterator for VecFpVar<F> {
+    type Item = FpVar<F>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.vec.into_iter()
+    }
+}
+
+impl<F: PrimeField> AllocVar<Vec<F>, F> for VecFpVar<F> {
+    fn new_variable<T: Borrow<Vec<F>>>(
+        cs: impl Into<Namespace<F>>,
+        f: impl FnOnce() -> Result<T, SynthesisError>,
+        mode: AllocationMode,
+    ) -> Result<Self, SynthesisError> {
+        let cs = cs.into();
+        f().and_then(|c| {
+            let vec = c
+                .borrow()
+                .iter()
+                .map(|element| {
+                    FpVar::new_variable(cs.clone(), || Ok(element), mode)
+                        .map_err(|_| SynthesisError::Unsatisfiable)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Self { vec })
+        })
+    }
+}
 
 /// EqEval is a gadget for computing $\tilde{eq}(a, b) = \Pi_{i=1}^{l}(a_i \cdot b_i + (1 - a_i)(1 - b_i))$
 /// :warning: This is not the ark_r1cs_std::eq::EqGadget
