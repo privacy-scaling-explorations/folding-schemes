@@ -1,5 +1,5 @@
 # folding-schemes
-(brief description)
+(brief description) .. implemented on [arkworks](https://github.com/arkworks-rs).
 
 > **Warning**: experimental code, do not use in production.
 
@@ -16,6 +16,11 @@ WIP:
 - [Circom](https://github.com/iden3/circom), iden3, 0Kims Association
 
 ## Usage
+
+### Folding Schemes introduction
+[introductory text here]
+
+- https://youtu.be/IzLTpKWt-yg?t=6367 , where [Carlos Pérez](https://twitter.com/CPerezz19) overviews the features of folding schemes and what can be build with them.
 
 ### Overview
 Suppose that the user inputs a circuit that follows the IVC structure, chooses which Folding Scheme to use (eg. Nova), and which Decider (eg. Spartan over Pasta curve).
