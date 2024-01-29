@@ -41,7 +41,15 @@ Now we plug it into the library:
 //
 ```
 
-### Generating the final proof (decider), and verifying it in Ethereum
+### Final proof (decider proof)
+Two options:
+- offchain mode
+- onchain (Ethereum's EVM) mode
+
+#### Offchain Decider
+
+#### Onchain Decider
+Generating the final proof (decider), and verifying it in Ethereum's EVM
 
 ### Swapping curves and proving schemes
 Additionally, let's suppose that for the final proof (decider), instead of using Groth16 over the BN254 curve, we want to use Marlin+IPA over the Pasta curves, so we can enjoy of not needing a trusted setup.
@@ -62,3 +70,9 @@ In each of the implementations of the folding dir, there are mainly 3 blocks plu
 
 ## License
 https://github.com/privacy-scaling-explorations/folding-schemes/blob/main/LICENSE
+
+[TODO: add references to
+- Espresso code
+- arkworks
+- KZG & Groth16 original adapted code
+]
