@@ -227,7 +227,7 @@ where
         let (prover_params, F_circuit) = prep_param;
 
         let (r1cs, cf_r1cs) =
-            get_r1cs::<C1, GC1, C2, GC2, FC>(&prover_params.poseidon_config, *F_circuit)?;
+            get_r1cs::<C1, GC1, C2, GC2, FC>(&prover_params.poseidon_config, F_circuit.clone())?;
 
         let verifier_params = VerifierParams::<C1, C2> {
             poseidon_config: prover_params.poseidon_config.clone(),
@@ -243,6 +243,7 @@ where
         let cs = ConstraintSystem::<C1::ScalarField>::new_ref();
         let cs2 = ConstraintSystem::<C1::BaseField>::new_ref();
 
+        let F_clone = F.clone();
         let augmented_F_circuit =
             AugmentedFCircuit::<C1, C2, GC2, FC>::empty(&pp.poseidon_config, F);
         let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty();
@@ -272,7 +273,7 @@ where
             poseidon_config: pp.poseidon_config.clone(),
             cm_params: pp.cm_params.clone(),
             cf_cm_params: pp.cf_cm_params.clone(),
-            F,
+            F: F_clone,
             i: C1::ScalarField::zero(),
             z_0: z_0.clone(),
             z_i: z_0,
@@ -292,7 +293,7 @@ where
         let cfW_circuit: CycleFoldCircuit<C1, GC1>;
         let cfE_circuit: CycleFoldCircuit<C1, GC1>;
 
-        let z_i1 = self.F.step_native(self.z_i.clone())?;
+        let z_i1 = self.F.clone().step_native(self.z_i.clone())?;
 
         // compute T and cmT for AugmentedFCircuit
         let (T, cmT) = self.compute_cmT()?;
@@ -333,7 +334,7 @@ where
                 U_i: Some(self.U_i.clone()), // = dummy
                 U_i1: Some(U_i1.clone()),
                 cmT: Some(cmT),
-                F: self.F,
+                F: self.F.clone(),
                 x: Some(u_i1_x),
                 cf1_u_i: None,
                 cf2_u_i: None,
@@ -405,7 +406,7 @@ where
                 U_i: Some(self.U_i.clone()),
                 U_i1: Some(U_i1.clone()),
                 cmT: Some(cmT),
-                F: self.F,
+                F: self.F.clone(),
                 x: Some(u_i1_x),
                 // cyclefold values
                 cf1_u_i: Some(cfW_u_i.clone()),

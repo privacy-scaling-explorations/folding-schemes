@@ -3,14 +3,21 @@ pub mod circom;
 use crate::Error;
 use ark_ff::PrimeField;
 use ark_r1cs_std::fields::fp::FpVar;
-use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
+use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError, ConstraintSynthesizer};
+use ark_r1cs_std::alloc::AllocVar;
 use ark_std::fmt::Debug;
+use ark_r1cs_std::R1CSVar;
+
+use crate::frontend::circom::CircomWrapper;
+use std::path::PathBuf;
+use num_bigint::BigInt;
+use ark_circom::circom::CircomCircuit;
 
 /// FCircuit defines the trait of the circuit of the F function, which is the one being folded (ie.
 /// inside the agmented F' function).
 /// The parameter z_i denotes the current state, and z_{i+1} denotes the next state after applying
 /// the step.
-pub trait FCircuit<F: PrimeField>: Clone + Copy + Debug {
+pub trait FCircuit<F: PrimeField>: Clone + Debug {
     type Params: Debug;
 
     /// returns a new FCircuit instance
@@ -39,10 +46,95 @@ pub trait FCircuit<F: PrimeField>: Clone + Copy + Debug {
     ) -> Result<Vec<FpVar<F>>, SynthesisError>;
 }
 
+/// Define CircomFCircuit
+#[derive(Clone, Debug)]
+pub struct CircomtoFCircuit<F: PrimeField> {
+    circom_wrapper: CircomWrapper<F>,
+}
+
+impl<F: PrimeField> FCircuit<F> for CircomtoFCircuit<F> {
+    type Params = (PathBuf, PathBuf);
+
+    fn new(params: Self::Params) -> Self {
+        let (r1cs_path, wasm_path) = params;
+        let circom_wrapper = CircomWrapper::new(r1cs_path, wasm_path);
+        Self { circom_wrapper}
+    }
+
+    fn step_native(self, z_i: Vec<F>) -> Result<Vec<F>, Error> {
+        // Convert from PrimeField::Bigint to num_bigint::BigInt
+        let input_num_bigint = z_i.iter().map(|val| {
+            self.circom_wrapper.ark_bigint_to_num_bigint(*val)
+        }).collect::<Vec<BigInt>>();
+
+        // Compute witness
+        let (_, witness) = self.circom_wrapper.extract_r1cs_and_witness(&[
+            ("ivc_input".to_string(), input_num_bigint)
+        ]).map_err(|e| Error::Other(format!("Circom computation failed: {}", e)))?;  
+        
+        // [To Do: extract the z_i1(next public output) in Z(R1CS vector)]
+        match witness {
+            Some(new_z_i) => Ok(new_z_i),
+            None => Err(Error::Other("Witness was not found".to_string())),
+        }
+    }
+
+    fn generate_step_constraints(
+        self,
+        cs: ConstraintSystemRef<F>,
+        z_i: Vec<FpVar<F>>,
+    ) -> Result<Vec<FpVar<F>>, SynthesisError> {
+        let mut input_values = Vec::new();
+        // Convert each FpVar to BigInt and add it to the input_values vector
+        for fp_var in z_i.iter() {
+            // Convert from FpVar to PrimeField::Bigint
+            let prime_bigint = fp_var.value()?;
+            // Convert from PrimeField::Bigint to num_bigint::BigInt
+            let num_bigint = self.circom_wrapper.ark_bigint_to_num_bigint(prime_bigint);
+            input_values.push(num_bigint);
+        }
+    
+        // Temporarily
+        let big_int_inputs = vec![("ivc_input".to_string(), input_values)];
+        // let big_int_inputs = vec![("ivc_input".to_string(), vec![BigInt::from(5)])];
+
+        let (r1cs, witness) = self.circom_wrapper.extract_r1cs_and_witness(&big_int_inputs)
+            .map_err(|_| SynthesisError::AssignmentMissing)?;
+        println!("Extracted R1CS and witness");
+        println!("r1cs: {:?}", r1cs);
+        println!("witness: {:?}", witness);
+
+        // CircomCircuit constraints
+        let circom_circuit = CircomCircuit { r1cs, witness };
+
+        circom_circuit.generate_constraints(cs.clone())
+            .map_err(|_| SynthesisError::AssignmentMissing)?;
+        println!("Generated constraints");
+
+        // [ToDo: error: Constraint trace requires enabling `ConstraintLayer`]
+    
+        // satisfication check
+        if !cs.is_satisfied().unwrap() {
+            println!("Constraint is not satisfied");
+            return Err(SynthesisError::AssignmentMissing);
+        }
+        println!("Constraint is satisfied");
+        
+        // [To Do: extract the z_i1(next public output) in Z(R1CS vector)]
+        //let new_z_i = witness.iter().map(|w| {
+        //    FpVar::<F>::new_witness(cs.clone(), || Ok(*w))
+        //}).collect::<Result<Vec<FpVar<F>>, SynthesisError>>()?;
+    
+        //Ok(new_z_i)
+        Ok(z_i)
+    } 
+       
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use ark_pallas::Fr;
+    use ark_bn254::Fr;
     use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget};
     use ark_relations::r1cs::{
         ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, SynthesisError,
@@ -177,5 +269,66 @@ pub mod tests {
         };
         wrapper_circuit.generate_constraints(cs.clone()).unwrap();
         assert_eq!(cs.num_constraints(), n_constraints);
+    }
+
+    #[test]
+    fn test_circom_step_constraints() -> Result<(), Box<dyn std::error::Error>> {
+        let r1cs_path = PathBuf::from("./src/frontend/circom/test_folder/cubic_circuit.r1cs");
+        let wasm_path = PathBuf::from("./src/frontend/circom/test_folder/cubic_circuit_js/cubic_circuit.wasm");
+
+        let circom_fcircuit = CircomtoFCircuit::<Fr>::new((r1cs_path, wasm_path));
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+
+        let z_i_values = vec![Fr::from(3u32)];
+
+        let z_i_vars = z_i_values.into_iter().map(|val| {
+            FpVar::<Fr>::new_witness(cs.clone(), || Ok(val))
+                .expect("Failed to create FpVar")
+        }).collect::<Vec<FpVar<Fr>>>();
+
+        circom_fcircuit.generate_step_constraints(cs.clone(), z_i_vars)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_circom_step_native() -> Result<(), Box<dyn std::error::Error>> {
+        let r1cs_path = PathBuf::from("./src/frontend/circom/test_folder/cubic_circuit.r1cs");
+        let wasm_path = PathBuf::from("./src/frontend/circom/test_folder/cubic_circuit_js/cubic_circuit.wasm");
+
+        let circom_fcircuit = CircomtoFCircuit::<Fr>::new((r1cs_path, wasm_path));
+
+        let z_i = vec![Fr::from(3u32)];
+        match circom_fcircuit.step_native(z_i) {
+            Ok(witness) => {
+                assert!(!witness.is_empty(), "Witness should not be empty");
+                println!("Test passed with witness: {:?}", witness);
+            },
+            Err(e) => return Err(Box::new(e)),
+        }
+        Ok(())
+    }
+
+    // [To Do extract the z_i1]
+    // Absolutely fails because all elements of Z(R1CS) are passed to z_i1
+    #[test]
+    fn test_wrapper_circomtofcircuit() {
+        let r1cs_path = PathBuf::from("./src/frontend/circom/test_folder/cubic_circuit.r1cs");
+        let wasm_path = PathBuf::from("./src/frontend/circom/test_folder/cubic_circuit_js/cubic_circuit.wasm");
+        
+        let z_i = vec![Fr::from(3u32)];
+        let circom_fcircuit = CircomtoFCircuit::<Fr>::new((r1cs_path, wasm_path));
+
+        let wrapper_circuit = WrapperCircuit {
+            FC: circom_fcircuit,
+            z_i: Some(z_i.clone()),
+            z_i1: Some(vec![Fr::from(35u32)]),
+        };
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+
+        wrapper_circuit.generate_constraints(cs.clone()).unwrap();
+        assert!(cs.is_satisfied().unwrap(), "Constraint system is not satisfied");
     }
 }

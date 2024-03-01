@@ -14,7 +14,7 @@ ark-relations = { version = "^0.4.0", default-features = false }
 ark-r1cs-std = { version = "0.4.0", default-features = false } # this is patched at the workspace level
 ark-snark = { version = "^0.4.0"}
 ark-serialize = "^0.4.0"
-ark-circom = { git = "https://github.com/gakonst/ark-circom.git" }
+ark-circom = { git = "https://github.com/arnaucube/circom-compat.git" }
 thiserror = "1.0"
 rayon = "1.7.0"
 num-bigint = "0.4"
