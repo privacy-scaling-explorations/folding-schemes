@@ -251,6 +251,7 @@ pub struct AugmentedFCircuit<
     pub u_i: Option<CommittedInstance<C1>>,
     pub U_i: Option<CommittedInstance<C1>>,
     pub U_i1: Option<CommittedInstance<C1>>,
+    pub r_nonnat: Option<CF2<C1>>,
     pub cmT: Option<C1>,
     pub F: FC,              // F circuit
     pub x: Option<CF1<C1>>, // public inputs (u_{i+1}.x)
@@ -285,6 +286,7 @@ where
             u_i: None,
             U_i: None,
             U_i1: None,
+            r_nonnat: None,
             cmT: None,
             F: F_circuit,
             x: None,
@@ -340,6 +342,10 @@ where
         let U_i1 = CommittedInstanceVar::<C1>::new_witness(cs.clone(), || {
             Ok(self.U_i1.unwrap_or(u_dummy_native.clone()))
         })?;
+        let r_nonnat =
+            NonNativeFieldVar::<C1::BaseField, C1::ScalarField>::new_witness(cs.clone(), || {
+                Ok(self.r_nonnat.unwrap_or_else(CF2::<C1>::zero))
+            })?;
         let cmT =
             NonNativeAffineVar::new_witness(cs.clone(), || Ok(self.cmT.unwrap_or_else(C1::zero)))?;
         let x =
@@ -391,6 +397,11 @@ where
         )?;
         let r = Boolean::le_bits_to_fp_var(&r_bits)?;
 
+        // enforce that the input r_nonnat as bits matches the in-circuit computed r_bits
+        let r_nonnat_bits: Vec<Boolean<C1::ScalarField>> =
+            r_nonnat.to_bits_le()?.into_iter().take(128).collect();
+        r_nonnat_bits.enforce_equal(&r_bits)?;
+
         // Notice that NIFSGadget::verify is not checking the folding of cmE & cmW, since it will
         // be done on the other curve.
         let nifs_check = NIFSGadget::<C1>::verify(r, U_i.clone(), u_i.clone(), U_i1.clone())?;
@@ -436,10 +447,28 @@ where
             })?;
 
         let cfW_x: Vec<NonNativeFieldVar<C1::BaseField, C1::ScalarField>> = vec![
-            U_i.cmW.x, U_i.cmW.y, u_i.cmW.x, u_i.cmW.y, U_i1.cmW.x, U_i1.cmW.y,
+            r_nonnat.clone(),
+            U_i.cmW.x,
+            U_i.cmW.y,
+            U_i.cmW.infinity,
+            u_i.cmW.x,
+            u_i.cmW.y,
+            u_i.cmW.infinity,
+            U_i1.cmW.x,
+            U_i1.cmW.y,
+            U_i1.cmW.infinity,
         ];
         let cfE_x: Vec<NonNativeFieldVar<C1::BaseField, C1::ScalarField>> = vec![
-            U_i.cmE.x, U_i.cmE.y, u_i.cmE.x, u_i.cmE.y, U_i1.cmE.x, U_i1.cmE.y,
+            r_nonnat,
+            U_i.cmE.x,
+            U_i.cmE.y,
+            U_i.cmE.infinity,
+            cmT.x,
+            cmT.y,
+            cmT.infinity,
+            U_i1.cmE.x,
+            U_i1.cmE.y,
+            U_i1.cmE.infinity,
         ];
 
         // ensure that cf1_u & cf2_u have as public inputs the cmW & cmE from main instances U_i,

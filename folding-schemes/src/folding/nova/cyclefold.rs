@@ -14,7 +14,7 @@ use ark_r1cs_std::{
     fields::{fp::FpVar, nonnative::NonNativeFieldVar},
     groups::GroupOpsBounds,
     prelude::CurveVar,
-    ToBytesGadget,
+    ToBytesGadget, ToConstraintFieldGadget,
 };
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, Namespace, SynthesisError};
 use ark_serialize::CanonicalSerialize;
@@ -27,8 +27,9 @@ use super::CommittedInstance;
 use crate::constants::N_BITS_RO;
 use crate::Error;
 
-// publi inputs length for the CycleFoldCircuit, |[p1.x,y, p2.x,y, p3.x,y]|
-pub const CF_IO_LEN: usize = 6;
+// publi inputs length for the CycleFoldCircuit: |[r, p1.x,y,infinity, p2.x,y,infinity,
+// p3.x,y,infinity]|
+pub const CF_IO_LEN: usize = 10;
 
 /// CycleFoldCommittedInstanceVar is the CycleFold CommittedInstance representation in the Nova
 /// circuit.
@@ -318,7 +319,7 @@ impl<C: CurveGroup, GC: CurveVar<C, CF2<C>>> CycleFoldCircuit<C, GC> {
 impl<C, GC> ConstraintSynthesizer<CF2<C>> for CycleFoldCircuit<C, GC>
 where
     C: CurveGroup,
-    GC: CurveVar<C, CF2<C>>,
+    GC: CurveVar<C, CF2<C>> + ToConstraintFieldGadget<CF2<C>>,
     <C as ark_ec::CurveGroup>::BaseField: ark_ff::PrimeField,
     for<'a> &'a GC: GroupOpsBounds<'a, C, GC>,
 {
@@ -330,23 +331,28 @@ where
         let p2 = GC::new_witness(cs.clone(), || Ok(self.p2.unwrap_or(C::zero())))?;
         let p3 = GC::new_witness(cs.clone(), || Ok(self.p3.unwrap_or(C::zero())))?;
 
-        let _x = Vec::<FpVar<CF2<C>>>::new_input(cs.clone(), || {
+        let x = Vec::<FpVar<CF2<C>>>::new_input(cs.clone(), || {
             Ok(self.x.unwrap_or(vec![CF2::<C>::zero(); CF_IO_LEN]))
         })?;
         #[cfg(test)]
-        assert_eq!(_x.len(), CF_IO_LEN); // non-constrained sanity check
+        assert_eq!(x.len(), CF_IO_LEN); // non-constrained sanity check
+
+        // check that the points coordinates are placed as the public input x: x == [p1, p2, p3]
+        let r: FpVar<CF2<C>> = Boolean::le_bits_to_fp_var(&r_bits)?;
+        let points_coords: Vec<FpVar<CF2<C>>> = [
+            vec![r],
+            p1.clone().to_constraint_field()?,
+            p2.clone().to_constraint_field()?,
+            p3.clone().to_constraint_field()?,
+        ]
+        .concat();
+        points_coords.enforce_equal(&x)?;
 
         // Fold the original Nova instances natively in CycleFold
         // For the cmW we're checking: U_i1.cmW == U_i.cmW + r * u_i.cmW
         // For the cmE we're checking: U_i1.cmE == U_i.cmE + r * cmT + r^2 * u_i.cmE, where u_i.cmE
         // is assumed to be 0, so, U_i1.cmE == U_i.cmE + r * cmT
         p3.enforce_equal(&(p1 + p2.scalar_mul_le(r_bits.iter())?))?;
-
-        // check that x == [u_i, U_i, U_{i+1}], check that the cmW & cmW from u_i, U_i, U_{i+1} in
-        // the CycleFoldCircuit are the sames used in the public inputs 'x', which come from the
-        // AugmentedFCircuit.
-        // TODO: Issue to keep track of this: https://github.com/privacy-scaling-explorations/folding-schemes/issues/44
-        // and https://github.com/privacy-scaling-explorations/folding-schemes/issues/48
 
         Ok(())
     }
@@ -390,12 +396,14 @@ pub mod tests {
     #[test]
     fn test_CycleFoldCircuit_constraints() {
         let (_, _, _, _, ci1, _, ci2, _, ci3, _, cmT, r_bits, _) = prepare_simple_fold_inputs();
+        let r_Fq = Fq::from_bigint(BigInteger::from_bits_le(&r_bits)).unwrap();
 
         // cs is the Constraint System on the Curve Cycle auxiliary curve constraints field
         // (E1::Fq=E2::Fr)
         let cs = ConstraintSystem::<Fq>::new_ref();
 
-        let cfW_u_i_x = [
+        let cfW_u_i_x: Vec<Fq> = [
+            vec![r_Fq.clone()],
             get_cm_coordinates(&ci1.cmW),
             get_cm_coordinates(&ci2.cmW),
             get_cm_coordinates(&ci3.cmW),
@@ -411,13 +419,13 @@ pub mod tests {
         };
         cfW_circuit.generate_constraints(cs.clone()).unwrap();
         assert!(cs.is_satisfied().unwrap());
-        dbg!(cs.num_constraints());
 
         // same for E:
         let cs = ConstraintSystem::<Fq>::new_ref();
         let cfE_u_i_x = [
+            vec![r_Fq],
             get_cm_coordinates(&ci1.cmE),
-            get_cm_coordinates(&ci2.cmE),
+            get_cm_coordinates(&cmT),
             get_cm_coordinates(&ci3.cmE),
         ]
         .concat();
@@ -542,6 +550,7 @@ pub mod tests {
         )
         .unwrap();
         assert!(cs.is_satisfied().unwrap());
+        dbg!(cs.num_constraints());
 
         // check that the natively computed and in-circuit computed hashes match
         let rVar = Boolean::le_bits_to_fp_var(&r_bitsVar).unwrap();

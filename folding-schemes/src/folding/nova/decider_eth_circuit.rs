@@ -244,7 +244,7 @@ impl<C1, GC1, C2, GC2, CS1, CS2> DeciderEthCircuit<C1, GC1, C2, GC2, CS1, CS2>
 where
     C1: CurveGroup,
     C2: CurveGroup,
-    GC1: CurveVar<C1, CF2<C1>>,
+    GC1: CurveVar<C1, CF2<C1>> + ToConstraintFieldGadget<CF2<C1>>,
     GC2: CurveVar<C2, CF2<C2>>,
     CS1: CommitmentScheme<C1>,
     // enforce that the CS2 is Pedersen commitment scheme, since we're at Ethereum's EVM decider

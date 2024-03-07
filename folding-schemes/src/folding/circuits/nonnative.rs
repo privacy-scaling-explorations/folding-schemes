@@ -18,6 +18,7 @@ where
 {
     pub x: NonNativeFieldVar<C::BaseField, C::ScalarField>,
     pub y: NonNativeFieldVar<C::BaseField, C::ScalarField>,
+    pub infinity: NonNativeFieldVar<C::BaseField, C::ScalarField>,
 }
 
 impl<C> AllocVar<C, C::ScalarField> for NonNativeAffineVar<C>
@@ -48,7 +49,19 @@ where
                 mode,
             )?;
 
-            Ok(Self { x, y })
+            let is_infinity = affine.is_zero();
+            let inf: C::BaseField = if is_infinity {
+                C::BaseField::one()
+            } else {
+                C::BaseField::zero()
+            };
+            let infinity = NonNativeFieldVar::<C::BaseField, C::ScalarField>::new_variable(
+                cs.clone(),
+                || Ok(inf),
+                mode,
+            )?;
+
+            Ok(Self { x, y, infinity })
         })
     }
 }

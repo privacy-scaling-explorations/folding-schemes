@@ -6,7 +6,7 @@ use ark_crypto_primitives::{
 };
 use ark_ec::{AffineRepr, CurveGroup, Group};
 use ark_ff::{BigInteger, PrimeField};
-use ark_r1cs_std::{groups::GroupOpsBounds, prelude::CurveVar};
+use ark_r1cs_std::{groups::GroupOpsBounds, prelude::CurveVar, ToConstraintFieldGadget};
 use ark_std::fmt::Debug;
 use ark_std::{One, Zero};
 use core::marker::PhantomData;
@@ -160,7 +160,7 @@ pub struct VerifierParams<C1: CurveGroup, C2: CurveGroup> {
 pub struct Nova<C1, GC1, C2, GC2, FC, CS1, CS2>
 where
     C1: CurveGroup,
-    GC1: CurveVar<C1, CF2<C1>>,
+    GC1: CurveVar<C1, CF2<C1>> + ToConstraintFieldGadget<CF2<C1>>,
     C2: CurveGroup,
     GC2: CurveVar<C2, CF2<C2>>,
     FC: FCircuit<C1::ScalarField>,
@@ -201,7 +201,7 @@ impl<C1, GC1, C2, GC2, FC, CS1, CS2> FoldingScheme<C1, C2, FC>
     for Nova<C1, GC1, C2, GC2, FC, CS1, CS2>
 where
     C1: CurveGroup,
-    GC1: CurveVar<C1, CF2<C1>>,
+    GC1: CurveVar<C1, CF2<C1>> + ToConstraintFieldGadget<CF2<C1>>,
     C2: CurveGroup,
     GC2: CurveVar<C2, CF2<C2>>,
     FC: FCircuit<C1::ScalarField>,
@@ -313,6 +313,8 @@ where
         )?;
         let r_Fr = C1::ScalarField::from_bigint(BigInteger::from_bits_le(&r_bits))
             .ok_or(Error::OutOfBounds)?;
+        let r_Fq = C1::BaseField::from_bigint(BigInteger::from_bits_le(&r_bits))
+            .ok_or(Error::OutOfBounds)?;
 
         // fold Nova instances
         let (W_i1, U_i1): (Witness<C1>, CommittedInstance<C1>) = NIFS::<C1, CS1>::fold_instances(
@@ -340,6 +342,7 @@ where
                 u_i: Some(self.u_i.clone()), // = dummy
                 U_i: Some(self.U_i.clone()), // = dummy
                 U_i1: Some(U_i1.clone()),
+                r_nonnat: Some(r_Fq),
                 cmT: Some(cmT),
                 F: self.F.clone(),
                 x: Some(u_i1_x),
@@ -361,6 +364,7 @@ where
             // get the vector used as public inputs 'x' in the CycleFold circuit
             // cyclefold circuit for cmW
             let cfW_u_i_x = [
+                vec![r_Fq.clone()],
                 get_cm_coordinates(&self.U_i.cmW),
                 get_cm_coordinates(&self.u_i.cmW),
                 get_cm_coordinates(&U_i1.cmW),
@@ -368,8 +372,9 @@ where
             .concat();
             // cyclefold circuit for cmE
             let cfE_u_i_x = [
+                vec![r_Fq.clone()],
                 get_cm_coordinates(&self.U_i.cmE),
-                get_cm_coordinates(&self.u_i.cmE),
+                get_cm_coordinates(&cmT),
                 get_cm_coordinates(&U_i1.cmE),
             ]
             .concat();
@@ -413,6 +418,7 @@ where
                 u_i: Some(self.u_i.clone()),
                 U_i: Some(self.U_i.clone()),
                 U_i1: Some(U_i1.clone()),
+                r_nonnat: Some(r_Fq),
                 cmT: Some(cmT),
                 F: self.F.clone(),
                 x: Some(u_i1_x),
@@ -539,7 +545,7 @@ where
 impl<C1, GC1, C2, GC2, FC, CS1, CS2> Nova<C1, GC1, C2, GC2, FC, CS1, CS2>
 where
     C1: CurveGroup,
-    GC1: CurveVar<C1, CF2<C1>>,
+    GC1: CurveVar<C1, CF2<C1>> + ToConstraintFieldGadget<CF2<C1>>,
     C2: CurveGroup,
     GC2: CurveVar<C2, CF2<C2>>,
     FC: FCircuit<C1::ScalarField>,
@@ -583,7 +589,7 @@ where
 impl<C1, GC1, C2, GC2, FC, CS1, CS2> Nova<C1, GC1, C2, GC2, FC, CS1, CS2>
 where
     C1: CurveGroup,
-    GC1: CurveVar<C1, CF2<C1>>,
+    GC1: CurveVar<C1, CF2<C1>> + ToConstraintFieldGadget<CF2<C1>>,
     C2: CurveGroup,
     GC2: CurveVar<C2, CF2<C2>>,
     FC: FCircuit<C1::ScalarField>,
@@ -674,7 +680,7 @@ pub fn get_r1cs<C1, GC1, C2, GC2, FC>(
 ) -> Result<(R1CS<C1::ScalarField>, R1CS<C2::ScalarField>), Error>
 where
     C1: CurveGroup,
-    GC1: CurveVar<C1, CF2<C1>>,
+    GC1: CurveVar<C1, CF2<C1>> + ToConstraintFieldGadget<CF2<C1>>,
     C2: CurveGroup,
     GC2: CurveVar<C2, CF2<C2>>,
     FC: FCircuit<C1::ScalarField>,
@@ -702,7 +708,7 @@ pub fn get_cs_params_len<C1, GC1, C2, GC2, FC>(
 ) -> Result<(usize, usize), Error>
 where
     C1: CurveGroup,
-    GC1: CurveVar<C1, CF2<C1>>,
+    GC1: CurveVar<C1, CF2<C1>> + ToConstraintFieldGadget<CF2<C1>>,
     C2: CurveGroup,
     GC2: CurveVar<C2, CF2<C2>>,
     FC: FCircuit<C1::ScalarField>,
@@ -723,7 +729,13 @@ pub(crate) fn get_cm_coordinates<C: CurveGroup>(cm: &C) -> Vec<C::BaseField> {
     let zero = (&C::BaseField::zero(), &C::BaseField::one());
     let cm = cm.into_affine();
     let (cm_x, cm_y) = cm.xy().unwrap_or(zero);
-    vec![*cm_x, *cm_y]
+    let is_infinity = cm.is_zero();
+    let infinity: C::BaseField = if is_infinity {
+        C::BaseField::one()
+    } else {
+        C::BaseField::zero()
+    };
+    vec![*cm_x, *cm_y, infinity]
 }
 
 #[cfg(test)]
