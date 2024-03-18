@@ -199,13 +199,21 @@ It just requires few line changes on our previous code [...]
 
 ### On-chain verification
 Having used the `DeciderEth` (see [Onchain Decider](#Onchain-Decider) section), we can now verify it in Ethereum's EVM.
-[TODO]
+
+First we need to generate the Solidity contracts that verify the Decider proofs. Use the [solidity-verifiers-cli](cli) tool
+```
+> solidity-verifier-cli -p nova-cyclefold -d ./folding-verifier-solidity/assets/G16_test_vk_data
+```
 
 ## License
 https://github.com/privacy-scaling-explorations/folding-schemes/blob/main/LICENSE
 
 [TODO: add references to
-- Espresso code
 - arkworks
-- KZG & Groth16 original adapted code
+- Espresso code regarding the multilinear 'virtual polynomial' and SumCheck used in HyperNova
+- Solidity KZG & Groth16 original adapted code
+    - Groth16: Jordi Baylina
+    - KZG10: weijiekoh
+    - Templating: Han
+- People who helped us: Srinath Setty, Lev57, Matej (Lurk), Adrien (Lurk), TODO
 ]

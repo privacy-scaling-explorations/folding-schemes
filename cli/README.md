@@ -1,4 +1,4 @@
-# Solidity Verifier
+# Solidity Verifiers CLI
                                     _____  ______  ______  ______  ______  ______  ______ 
                                     | |__| || |__| || |__| || |__| || |__| || |__| || |__| |
                                     |  ()  ||  ()  ||  ()  ||  ()  ||  ()  ||  ()  ||  ()  |
@@ -20,9 +20,9 @@
                                     |  ()  ||  ()  ||  ()  ||  ()  ||  ()  ||  ()  ||  ()  |
                                     |______||______||______||______||______||______||______|
 
-Welcome to Solidity Verifier, a powerful Command-Line Interface (CLI) tool designed to simplify the generation of Solidity smart contracts that verify proofs of Zero Knowledge cryptographic protocols. This tool is developed by the collaborative efforts of the PSE (Privacy & Scaling Explorations) and 0XPARC teams.
+Welcome to Solidity Verifiers CLI, a Command-Line Interface (CLI) tool designed to simplify the generation of Solidity smart contracts that verify proofs of Zero Knowledge cryptographic protocols. This tool is developed by the collaborative efforts of the PSE (Privacy & Scaling Explorations) and 0XPARC teams.
 
-As an open-source project, Solidity Verifier is released under the GPL3 license.
+Solidity Verifiers CLI is released under the MIT license, but notice that the Solidity template for the Groth16 verification has GPL-3.0 license, hence the generated Solidity verifiers that use the Groth16 template will have that license too.
 
 ## Supported Protocols
 
@@ -37,17 +37,17 @@ Solidity Verifier currently supports the generation of Solidity smart contracts 
   - Example credit: [weijiekoh - KZG10 Verifier Contract](https://github.com/weijiekoh/libkzg/blob/master/sol/KZGVerifier.sol)
 
 - **Nova + CycleFold Decider:**
-  - Implements the decider circuit verification for the Nova zero-knowledge proof system in conjunction with the CycleFold protocol optimization.
+  - Implements the decider circuit verification for the Nova proof system in conjunction with the CycleFold protocol optimization.
   - Template inspiration and setup credit: [Han - revm/Solidity Contract Testing Functions](https://github.com/privacy-scaling-explorations/halo2-solidity-verifier/tree/main)
 
 ## Usage
 
 ```bash
-solidity-verifier [OPTIONS] -p <PROTOCOL> -pd <PROTOCOL_DATA> -o <OUTPUT_PATH>
+solidity-verifiers-cli [OPTIONS] -p <PROTOCOL> -d <PROTOCOL_DATA> -o <OUTPUT_PATH>
 ```
 
 A real use case (which was used to test the tool itself):
-`solidity-verifier -p groth16 -pd ./folding-verifier-solidity/assets/G16_test_vk_data`
+`solidity-verifiers-cli -p groth16 -d ./solidity-verifiers/assets/G16_test_vk_data`
 This would generate a Groth16 verifier contract for the given G16 data (which consists on the G16_Vkey only) and store this contract in `$pwd`.
 
 ### Options:
@@ -61,12 +61,11 @@ This would generate a Groth16 verifier contract for the given G16 data (which co
     -V, --version: Print version
 
 ## License
-Solidity Verifier is released under the GPL3 license for any of the protocols that include `Groth16`. See the LICENSE file in the project repository for more details.
-For the rest of contracts/protocols and the CLI itself, this tooling is released under MIT/Apache license.
+Solidity Verifier CLI is released under the MIT license, but notice that the Solidity template for the Groth16 verification has GPL-3.0 license, hence the generated Solidity verifiers will have that license too.
 
 ## Contributing
-Feel free to explore, use, and contribute to Solidity Verifier as we strive to enhance privacy and scalability in the blockchain space!
-We welcome contributions to Solidity Verifier! If you encounter any issues, have feature requests, or want to contribute to the codebase, please check out the GitHub repository and follow the guidelines outlined in the contributing documentation.
+Feel free to explore, use, and contribute to Solidity Verifiers CLI as we strive to enhance privacy and scalability in the blockchain space!
+We welcome contributions to Solidity Verifiers CLI! If you encounter any issues, have feature requests, or want to contribute to the codebase, please check out the GitHub repository and follow the guidelines outlined in the contributing documentation.
 
 
 
