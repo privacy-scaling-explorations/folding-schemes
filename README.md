@@ -30,13 +30,16 @@ Suppose that the user inputs a circuit that follows the IVC structure, chooses w
 
 Later the user can for example change with few code changes the Folding Scheme being used (eg. switch to ProtoGalaxy) and also the Decider (eg. Groth16 over bn254), so the final proof can be verified in an Ethereum smart contract.
 
-<!--
-![](https://hackmd.io/_uploads/H1r7z9I32.png)
-*note: this diagram will be improved and done with some non-handwritten tool.*
--->
 ![](folding-schemes-lib-pipeline.png)
 
 Complete examples can be found at [folding-schemes/examples](https://github.com/privacy-scaling-explorations/folding-schemes/tree/main/folding-schemes/examples)
+
+### The folding circuit
+For the next example, we're going to use Nova+CycleFold for the folding, with the On-chain (EVM) verifier.
+
+The following image provides a description of the main Nova circuit and CycleFold circuit over a couple of steps.
+
+<a href="cyclefold-nova-diagram.png" target="_blank">![](cyclefold-nova-diagram.png)</a>
 
 ### Define the circuit to be folded
 First let's define our circuit to be folded:
@@ -137,10 +140,16 @@ Two options:
 - offchain mode
 - onchain (Ethereum's EVM) mode
 
+Once we have been folding our circuit instances, we can generate the *"final proof"*, the Decider proof.
+
+
 #### Offchain Decider
 
 #### Onchain Decider
-Generating the final proof (decider), and verifying it in Ethereum's EVM
+
+<a href="decider-onchain-flow-diagram.png" target="_blank">![](decider-onchain-flow-diagram.png)</a>
+
+Generating the final proof (decider), to be able to verify it in Ethereum's EVM:
 
 ```rust
 type DECIDER = Decider<
@@ -181,13 +190,16 @@ let verified = DECIDER::verify(decider_vp, nova.i, nova.z_0, nova.z_i, &nova.U_i
 assert!(verified);
 ```
 
-Complete examples can be found at [folding-schemes/examples](https://github.com/privacy-scaling-explorations/folding-schemes/tree/main/folding-schemes/examples)
+As mentioned above, complete examples can be found at [folding-schemes/examples](https://github.com/privacy-scaling-explorations/folding-schemes/tree/main/folding-schemes/examples)
 
 ### Swapping curves and proving schemes
 Thanks to the modularity of arkworks, we can swap between curves and proving systems.
 Suppose that for the final proof (decider), instead of using Groth16 over the BN254 curve, we want to use Marlin+IPA over the Pasta curves, so we can enjoy of not needing a trusted setup.
 It just requires few line changes on our previous code [...]
 
+### On-chain verification
+Having used the `DeciderEth` (see [Onchain Decider](#Onchain-Decider) section), we can now verify it in Ethereum's EVM.
+[TODO]
 
 ## License
 https://github.com/privacy-scaling-explorations/folding-schemes/blob/main/LICENSE
