@@ -1,8 +1,7 @@
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_r1cs_std::fields::nonnative::{params::OptimizationType, AllocatedNonNativeFieldVar};
 use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
-    fields::nonnative::NonNativeFieldVar,
+    fields::nonnative::{params::OptimizationType, AllocatedNonNativeFieldVar, NonNativeFieldVar},
 };
 use ark_relations::r1cs::{Namespace, SynthesisError};
 use ark_std::{One, Zero};
@@ -71,7 +70,14 @@ where
 #[allow(clippy::type_complexity)]
 pub fn point_to_nonnative_limbs<C: CurveGroup>(
     p: C,
-) -> Result<(Vec<C::ScalarField>, Vec<C::ScalarField>), SynthesisError>
+) -> Result<
+    (
+        Vec<C::ScalarField>,
+        Vec<C::ScalarField>,
+        Vec<C::ScalarField>,
+    ),
+    SynthesisError,
+>
 where
     <C as ark_ec::CurveGroup>::BaseField: ark_ff::PrimeField,
 {
@@ -85,7 +91,14 @@ where
 pub fn point_to_nonnative_limbs_custom_opt<C: CurveGroup>(
     p: C,
     optimization_type: OptimizationType,
-) -> Result<(Vec<C::ScalarField>, Vec<C::ScalarField>), SynthesisError>
+) -> Result<
+    (
+        Vec<C::ScalarField>,
+        Vec<C::ScalarField>,
+        Vec<C::ScalarField>,
+    ),
+    SynthesisError,
+>
 where
     <C as ark_ec::CurveGroup>::BaseField: ark_ff::PrimeField,
 {
@@ -101,7 +114,12 @@ where
                 &C::BaseField::one(),
                 optimization_type,
             )?;
-        return Ok((x, y));
+        let infinity =
+            AllocatedNonNativeFieldVar::<C::BaseField, C::ScalarField>::get_limbs_representations(
+                &C::BaseField::one(),
+                optimization_type,
+            )?;
+        return Ok((x, y, infinity));
     }
 
     let (x, y) = affine.xy().unwrap();
@@ -113,7 +131,12 @@ where
         y,
         optimization_type,
     )?;
-    Ok((x, y))
+    let infinity =
+        AllocatedNonNativeFieldVar::<C::BaseField, C::ScalarField>::get_limbs_representations(
+            &C::BaseField::zero(),
+            optimization_type,
+        )?;
+    Ok((x, y, infinity))
 }
 
 #[cfg(test)]
@@ -136,8 +159,16 @@ mod tests {
         let mut rng = ark_std::test_rng();
         let p = Projective::rand(&mut rng);
         let pVar = NonNativeAffineVar::<Projective>::new_witness(cs.clone(), || Ok(p)).unwrap();
-        let (x, y) = point_to_nonnative_limbs(p).unwrap();
+        let (x, y, inf) = point_to_nonnative_limbs(p).unwrap();
         assert_eq!(pVar.x.to_constraint_field().unwrap().value().unwrap(), x);
         assert_eq!(pVar.y.to_constraint_field().unwrap().value().unwrap(), y);
+        assert_eq!(
+            pVar.infinity
+                .to_constraint_field()
+                .unwrap()
+                .value()
+                .unwrap(),
+            inf
+        );
     }
 }

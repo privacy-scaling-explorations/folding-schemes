@@ -71,8 +71,8 @@ where
         z_0: Vec<C::ScalarField>,
         z_i: Vec<C::ScalarField>,
     ) -> Result<C::ScalarField, Error> {
-        let (cmE_x, cmE_y) = point_to_nonnative_limbs::<C>(self.cmE)?;
-        let (cmW_x, cmW_y) = point_to_nonnative_limbs::<C>(self.cmW)?;
+        let (cmE_x, cmE_y, cmE_inf) = point_to_nonnative_limbs::<C>(self.cmE)?;
+        let (cmW_x, cmW_y, cmW_inf) = point_to_nonnative_limbs::<C>(self.cmW)?;
 
         CRH::<C::ScalarField>::evaluate(
             poseidon_config,
@@ -84,8 +84,10 @@ where
                 self.x.clone(),
                 cmE_x,
                 cmE_y,
+                cmE_inf,
                 cmW_x,
                 cmW_y,
+                cmW_inf,
             ]
             .concat(),
         )
@@ -289,8 +291,6 @@ where
     /// Implements IVC.P of Nova+CycleFold
     fn prove_step(&mut self) -> Result<(), Error> {
         let augmented_F_circuit: AugmentedFCircuit<C1, C2, GC2, FC>;
-        let cfW_circuit: CycleFoldCircuit<C1, GC1>;
-        let cfE_circuit: CycleFoldCircuit<C1, GC1>;
 
         if self.i > C1::ScalarField::from_le_bytes_mod_order(&std::usize::MAX.to_le_bytes()) {
             return Err(Error::MaxStep);
@@ -364,7 +364,7 @@ where
             // get the vector used as public inputs 'x' in the CycleFold circuit
             // cyclefold circuit for cmW
             let cfW_u_i_x = [
-                vec![r_Fq.clone()],
+                vec![r_Fq],
                 get_cm_coordinates(&self.U_i.cmW),
                 get_cm_coordinates(&self.u_i.cmW),
                 get_cm_coordinates(&U_i1.cmW),
@@ -372,14 +372,14 @@ where
             .concat();
             // cyclefold circuit for cmE
             let cfE_u_i_x = [
-                vec![r_Fq.clone()],
+                vec![r_Fq],
                 get_cm_coordinates(&self.U_i.cmE),
                 get_cm_coordinates(&cmT),
                 get_cm_coordinates(&U_i1.cmE),
             ]
             .concat();
 
-            cfW_circuit = CycleFoldCircuit::<C1, GC1> {
+            let cfW_circuit = CycleFoldCircuit::<C1, GC1> {
                 _gc: PhantomData,
                 r_bits: Some(r_bits.clone()),
                 p1: Some(self.U_i.clone().cmW),
@@ -387,7 +387,7 @@ where
                 p3: Some(U_i1.clone().cmW),
                 x: Some(cfW_u_i_x.clone()),
             };
-            cfE_circuit = CycleFoldCircuit::<C1, GC1> {
+            let cfE_circuit = CycleFoldCircuit::<C1, GC1> {
                 _gc: PhantomData,
                 r_bits: Some(r_bits.clone()),
                 p1: Some(self.U_i.clone().cmE),

@@ -108,8 +108,10 @@ where
             self.x,
             self.cmE.x.to_constraint_field()?,
             self.cmE.y.to_constraint_field()?,
+            self.cmE.infinity.to_constraint_field()?,
             self.cmW.x.to_constraint_field()?,
             self.cmW.y.to_constraint_field()?,
+            self.cmW.infinity.to_constraint_field()?,
         ]
         .concat();
         let input = [vec![i], z_0, z_i, U_vec.clone()].concat();
@@ -173,11 +175,11 @@ where
         u_i: CommittedInstance<C>,
         cmT: C,
     ) -> Result<Vec<bool>, SynthesisError> {
-        let (U_cmE_x, U_cmE_y) = point_to_nonnative_limbs::<C>(U_i.cmE)?;
-        let (U_cmW_x, U_cmW_y) = point_to_nonnative_limbs::<C>(U_i.cmW)?;
-        let (u_cmE_x, u_cmE_y) = point_to_nonnative_limbs::<C>(u_i.cmE)?;
-        let (u_cmW_x, u_cmW_y) = point_to_nonnative_limbs::<C>(u_i.cmW)?;
-        let (cmT_x, cmT_y) = point_to_nonnative_limbs::<C>(cmT)?;
+        let (U_cmE_x, U_cmE_y, U_cmE_inf) = point_to_nonnative_limbs::<C>(U_i.cmE)?;
+        let (U_cmW_x, U_cmW_y, U_cmW_inf) = point_to_nonnative_limbs::<C>(U_i.cmW)?;
+        let (u_cmE_x, u_cmE_y, u_cmE_inf) = point_to_nonnative_limbs::<C>(u_i.cmE)?;
+        let (u_cmW_x, u_cmW_y, u_cmW_inf) = point_to_nonnative_limbs::<C>(u_i.cmW)?;
+        let (cmT_x, cmT_y, cmT_inf) = point_to_nonnative_limbs::<C>(cmT)?;
 
         let mut sponge = PoseidonSponge::<C::ScalarField>::new(poseidon_config);
         let input = vec![
@@ -185,16 +187,21 @@ where
             U_i.x.clone(),
             U_cmE_x,
             U_cmE_y,
+            U_cmE_inf,
             U_cmW_x,
             U_cmW_y,
+            U_cmW_inf,
             vec![u_i.u],
             u_i.x.clone(),
             u_cmE_x,
             u_cmE_y,
+            u_cmE_inf,
             u_cmW_x,
             u_cmW_y,
+            u_cmW_inf,
             cmT_x,
             cmT_y,
+            cmT_inf,
         ]
         .concat();
         sponge.absorb(&input);
@@ -218,10 +225,13 @@ where
             u_i.x.clone(),
             u_i.cmE.x.to_constraint_field()?,
             u_i.cmE.y.to_constraint_field()?,
+            u_i.cmE.infinity.to_constraint_field()?,
             u_i.cmW.x.to_constraint_field()?,
             u_i.cmW.y.to_constraint_field()?,
+            u_i.cmW.infinity.to_constraint_field()?,
             cmT.x.to_constraint_field()?,
             cmT.y.to_constraint_field()?,
+            cmT.infinity.to_constraint_field()?,
         ]
         .concat();
         sponge.absorb(&input)?;
@@ -369,7 +379,6 @@ where
         let (u_i_x, U_i_vec) =
             U_i.clone()
                 .hash(&crh_params, i.clone(), z_0.clone(), z_i.clone())?;
-
         // check that h == u_i.x
         (u_i.x[0]).conditional_enforce_equal(&u_i_x, &is_not_basecase)?;
 
@@ -684,8 +693,10 @@ pub mod tests {
             U_iVar.x.clone(),
             U_iVar.cmE.x.to_constraint_field().unwrap(),
             U_iVar.cmE.y.to_constraint_field().unwrap(),
+            U_iVar.cmE.infinity.to_constraint_field().unwrap(),
             U_iVar.cmW.x.to_constraint_field().unwrap(),
             U_iVar.cmW.y.to_constraint_field().unwrap(),
+            U_iVar.cmW.infinity.to_constraint_field().unwrap(),
         ]
         .concat();
         let r_bitsVar = ChallengeGadget::<Projective>::get_challenge_gadget(

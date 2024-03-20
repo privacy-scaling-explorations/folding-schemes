@@ -51,8 +51,6 @@ pub fn vec_to_mle<F: PrimeField>(n_vars: usize, v: &Vec<F>) -> DenseMultilinearE
 }
 
 pub fn dense_vec_to_mle<F: PrimeField>(n_vars: usize, v: &Vec<F>) -> DenseMultilinearExtension<F> {
-    dbg!(n_vars);
-    dbg!(v.len());
     // Pad to 2^n_vars
     let v_padded: Vec<F> = [
         v.clone(),
@@ -88,7 +86,6 @@ mod tests {
         ]);
 
         let A_mle = matrix_to_mle(A);
-        dbg!(&A_mle);
         assert_eq!(A_mle.evaluations.len(), 16); // 4x4 matrix, thus 2bit x 2bit, thus 2^4=16 evals
 
         let A = to_F_matrix::<Fr>(vec![

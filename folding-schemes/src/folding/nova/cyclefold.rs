@@ -337,7 +337,7 @@ where
         #[cfg(test)]
         assert_eq!(x.len(), CF_IO_LEN); // non-constrained sanity check
 
-        // check that the points coordinates are placed as the public input x: x == [p1, p2, p3]
+        // check that the points coordinates are placed as the public input x: x == [r, p1, p2, p3]
         let r: FpVar<CF2<C>> = Boolean::le_bits_to_fp_var(&r_bits)?;
         let points_coords: Vec<FpVar<CF2<C>>> = [
             vec![r],
@@ -403,7 +403,7 @@ pub mod tests {
         let cs = ConstraintSystem::<Fq>::new_ref();
 
         let cfW_u_i_x: Vec<Fq> = [
-            vec![r_Fq.clone()],
+            vec![r_Fq],
             get_cm_coordinates(&ci1.cmW),
             get_cm_coordinates(&ci2.cmW),
             get_cm_coordinates(&ci3.cmW),
@@ -550,7 +550,6 @@ pub mod tests {
         )
         .unwrap();
         assert!(cs.is_satisfied().unwrap());
-        dbg!(cs.num_constraints());
 
         // check that the natively computed and in-circuit computed hashes match
         let rVar = Boolean::le_bits_to_fp_var(&r_bitsVar).unwrap();
