@@ -1,7 +1,8 @@
 # folding-schemes
 (brief description) .. implemented on [arkworks](https://github.com/arkworks-rs).
 
-> **Warning**: experimental code, do not use in production. The code has not been audited, and we have pending to implement several optimizations.
+> **Warning**: experimental code, do not use in production.
+> The code has not been audited, and we have pending to implement several optimizations. The focus so far has been on implementing from scratch Nova + CycleFold and achieving onchain (EVM) verification.
 
 ## Schemes implemented
 - [Nova: Recursive Zero-Knowledge Arguments from Folding Schemes](https://eprint.iacr.org/2021/370.pdf), Abhiram Kothapalli, Srinath Setty, Ioanna Tzialla. 2021
@@ -39,7 +40,7 @@ For the next example, we're going to use Nova+CycleFold for the folding, with th
 
 The following image provides a description of the main Nova circuit and CycleFold circuit over a couple of steps.
 
-<a href="cyclefold-nova-diagram.png" target="_blank">![](cyclefold-nova-diagram.png)</a>
+![](cyclefold-nova-diagram.png)
 
 ### Define the circuit to be folded
 First let's define our circuit to be folded:
@@ -147,7 +148,7 @@ Once we have been folding our circuit instances, we can generate the *"final pro
 
 #### Onchain Decider
 
-<a href="decider-onchain-flow-diagram.png" target="_blank">![](decider-onchain-flow-diagram.png)</a>
+![](decider-onchain-flow-diagram.png)
 
 Generating the final proof (decider), to be able to verify it in Ethereum's EVM:
 
