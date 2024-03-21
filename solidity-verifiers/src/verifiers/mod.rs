@@ -52,12 +52,14 @@ mod tests {
     use crate::evm::{compile_solidity, save_solidity, Evm};
     use crate::utils::HeaderInclusion;
     use crate::{Groth16Data, KzgData, NovaCyclefoldData, ProtocolData};
-    use ark_bn254::{Bn254, Fr, G1Projective as G1};
+    use ark_bn254::{constraints::GVar, Bn254, Fr, G1Projective as G1};
     use ark_crypto_primitives::snark::{CircuitSpecificSetupSNARK, SNARK};
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_ff::{BigInt, BigInteger, PrimeField};
     use ark_groth16::Groth16;
-    use ark_poly_commit::kzg10::VerifierKey;
+    use ark_groth16::VerifyingKey as G16VerifierKey;
+    use ark_grumpkin::{constraints::GVar as GVar2, Projective as G2};
+    use ark_poly_commit::kzg10::VerifierKey as KZGVerifierKey;
     use ark_r1cs_std::alloc::AllocVar;
     use ark_r1cs_std::eq::EqGadget;
     use ark_r1cs_std::fields::fp::FpVar;
@@ -66,18 +68,28 @@ mod tests {
     use ark_std::Zero;
     use ark_std::{test_rng, UniformRand};
     use askama::Template;
+    use itertools::chain;
+    use std::marker::PhantomData;
+    use std::time::Instant;
+
     use folding_schemes::{
         commitment::{
-            kzg::{ProverKey, KZG},
+            kzg::{ProverKey as KZGProverKey, KZG},
+            pedersen::Pedersen,
             CommitmentScheme,
         },
+        folding::nova::{
+            decider_eth::{prepare_calldata, Decider as DeciderEth, Proof as DeciderProof},
+            decider_eth_circuit::DeciderEthCircuit,
+            get_cs_params_len, Nova, ProverParams,
+        },
+        frontend::FCircuit,
         transcript::{
             poseidon::{poseidon_test_config, PoseidonTranscript},
             Transcript,
         },
+        Decider, Error, FoldingScheme,
     };
-    use itertools::chain;
-    use std::marker::PhantomData;
 
     use super::g16::Groth16Verifier;
     use super::kzg::KZG10Verifier;
@@ -91,6 +103,7 @@ mod tests {
     /// Default setup length for testing.
     const DEFAULT_SETUP_LEN: usize = 5;
 
+    /// Test circuit used to test the Groth16 proof generation
     #[derive(Debug, Clone, Copy)]
     struct TestAddCircuit<F: PrimeField> {
         _f: PhantomData<F>,
@@ -109,13 +122,41 @@ mod tests {
             Ok(())
         }
     }
+    /// Test circuit to be folded
+    #[derive(Clone, Copy, Debug)]
+    pub struct CubicFCircuit<F: PrimeField> {
+        _f: PhantomData<F>,
+    }
+    impl<F: PrimeField> FCircuit<F> for CubicFCircuit<F> {
+        type Params = ();
+        fn new(_params: Self::Params) -> Self {
+            Self { _f: PhantomData }
+        }
+        fn state_len(&self) -> usize {
+            1
+        }
+        fn step_native(&self, _i: usize, z_i: Vec<F>) -> Result<Vec<F>, Error> {
+            Ok(vec![z_i[0] * z_i[0] * z_i[0] + z_i[0] + F::from(5_u32)])
+        }
+        fn generate_step_constraints(
+            &self,
+            cs: ConstraintSystemRef<F>,
+            _i: usize,
+            z_i: Vec<FpVar<F>>,
+        ) -> Result<Vec<FpVar<F>>, SynthesisError> {
+            let five = FpVar::<F>::new_constant(cs.clone(), F::from(5u32))?;
+            let z_i = z_i[0].clone();
+
+            Ok(vec![&z_i * &z_i * &z_i + &z_i + &five])
+        }
+    }
 
     #[allow(clippy::type_complexity)]
     fn setup<'a>(
         n: usize,
     ) -> (
-        ProverKey<'a, G1>,
-        VerifierKey<Bn254>,
+        KZGProverKey<'a, G1>,
+        KZGVerifierKey<Bn254>,
         ark_groth16::ProvingKey<Bn254>,
         ark_groth16::VerifyingKey<Bn254>,
         TestAddCircuit<Fr>,
@@ -130,7 +171,7 @@ mod tests {
         };
         let (g16_pk, g16_vk) = Groth16::<Bn254>::setup(circuit, &mut rng).unwrap();
 
-        let (kzg_pk, kzg_vk): (ProverKey<G1>, VerifierKey<Bn254>) =
+        let (kzg_pk, kzg_vk): (KZGProverKey<G1>, KZGVerifierKey<Bn254>) =
             KZG::<Bn254>::setup(&mut rng, n).unwrap();
         (kzg_pk, kzg_vk, g16_pk, g16_vk, circuit)
     }
@@ -352,67 +393,36 @@ mod tests {
 
     #[test]
     fn nova_cyclefold_verifier_accepts_and_rejects_proofs() {
-        let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(test_rng().next_u64());
-        let (kzg_pk, kzg_vk, g16_pk, g16_vk, circuit) = setup(DEFAULT_SETUP_LEN);
+        // Nova+CycleFold DeciderEth proof generation
+        let (nova, kzg_pk, kzg_vk, g16_vk, proof) = prepare_nova();
+
         let g16_data = Groth16Data::from(g16_vk);
         let kzg_data = KzgData::from((kzg_vk, Some(kzg_pk.powers_of_g[0..3].to_vec())));
         let nova_cyclefold_data = NovaCyclefoldData::from((g16_data, kzg_data));
 
-        let g16_proof = Groth16::<Bn254>::prove(&g16_pk, circuit, &mut rng).unwrap();
-
-        let (a_x, a_y) = g16_proof.a.xy().unwrap();
-        let (b_x, b_y) = g16_proof.b.xy().unwrap();
-        let (c_x, c_y) = g16_proof.c.xy().unwrap();
-
-        let poseidon_config = poseidon_test_config::<Fr>();
-        let transcript_p = &mut PoseidonTranscript::<G1>::new(&poseidon_config);
-        let transcript_v = &mut PoseidonTranscript::<G1>::new(&poseidon_config);
-
-        let v: Vec<Fr> = std::iter::repeat_with(|| Fr::rand(&mut rng))
-            .take(DEFAULT_SETUP_LEN)
-            .collect();
-        let cm = KZG::<Bn254>::commit(&kzg_pk, &v, &Fr::zero()).unwrap();
-        let proof = KZG::<Bn254>::prove(&kzg_pk, transcript_p, &cm, &v, &Fr::zero(), None).unwrap();
+        // generate the calldata out of the proof
+        dbg!("generating calldata...");
+        let mut calldata: Vec<u8> = prepare_calldata(
+            FUNCTION_SIGNATURE_NOVA_CYCLEFOLD_CHECK,
+            nova.i,
+            nova.z_0,
+            nova.z_i,
+            &nova.U_i,
+            &nova.u_i,
+            proof,
+        )
+        .unwrap();
+        dbg!("...calldata generated");
 
         let decider_template = HeaderInclusion::<NovaCyclefoldDecider>::builder()
             .template(nova_cyclefold_data)
             .build()
             .render()
             .unwrap();
-
         let nova_cyclefold_verifier_bytecode = compile_solidity(decider_template, "NovaDecider");
 
         let mut evm = Evm::default();
         let verifier_address = evm.create(nova_cyclefold_verifier_bytecode);
-
-        let (cm_affine, proof_affine) = (cm.into_affine(), proof.proof.into_affine());
-        let (x_comm, y_comm) = cm_affine.xy().unwrap();
-        let (x_proof, y_proof) = proof_affine.xy().unwrap();
-        let y = proof.eval.into_bigint().to_bytes_be();
-
-        transcript_v.absorb_point(&cm).unwrap();
-        let x = transcript_v.get_challenge();
-
-        let x = x.into_bigint().to_bytes_be();
-        let mut calldata: Vec<u8> = chain![
-            FUNCTION_SIGNATURE_NOVA_CYCLEFOLD_CHECK,
-            a_x.into_bigint().to_bytes_be(),
-            a_y.into_bigint().to_bytes_be(),
-            b_x.c1.into_bigint().to_bytes_be(),
-            b_x.c0.into_bigint().to_bytes_be(),
-            b_y.c1.into_bigint().to_bytes_be(),
-            b_y.c0.into_bigint().to_bytes_be(),
-            c_x.into_bigint().to_bytes_be(),
-            c_y.into_bigint().to_bytes_be(),
-            BigInt::from(Fr::from(circuit.z)).to_bytes_be(),
-            x_comm.into_bigint().to_bytes_be(),
-            y_comm.into_bigint().to_bytes_be(),
-            x_proof.into_bigint().to_bytes_be(),
-            y_proof.into_bigint().to_bytes_be(),
-            x.clone(),
-            y,
-        ]
-        .collect();
 
         let (_, output) = evm.call(verifier_address, calldata.clone());
         assert_eq!(*output.last().unwrap(), 1);
@@ -422,5 +432,96 @@ mod tests {
         *last_calldata_element = 0;
         let (_, output) = evm.call(verifier_address, calldata);
         assert_eq!(*output.last().unwrap(), 0);
+    }
+
+    /// prepare_nova returns a Nova instance, and the KZGProverKey, KZGVerifierKey,
+    /// Groth16VerifierKey and Nova Proof
+    #[allow(clippy::type_complexity)]
+    #[allow(clippy::upper_case_acronyms)]
+    fn prepare_nova() -> (
+        Nova<G1, GVar, G2, GVar2, CubicFCircuit<Fr>, KZG<'static, Bn254>, Pedersen<G2>>,
+        KZGProverKey<'static, G1>,
+        KZGVerifierKey<Bn254>,
+        G16VerifierKey<Bn254>,
+        DeciderProof<G1, KZG<'static, Bn254>, Groth16<Bn254>>,
+    ) {
+        type NOVA = Nova<G1, GVar, G2, GVar2, CubicFCircuit<Fr>, KZG<'static, Bn254>, Pedersen<G2>>;
+        type DECIDER = DeciderEth<
+            G1,
+            GVar,
+            G2,
+            GVar2,
+            CubicFCircuit<Fr>,
+            KZG<'static, Bn254>,
+            Pedersen<G2>,
+            Groth16<Bn254>,
+            NOVA,
+        >;
+
+        let mut rng = ark_std::test_rng();
+        let poseidon_config = poseidon_test_config::<Fr>();
+
+        let f_circuit = CubicFCircuit::<Fr>::new(());
+        let z_0 = vec![Fr::from(3_u32)];
+
+        let (cs_len, cf_cs_len) = get_cs_params_len::<G1, GVar, G2, GVar2, CubicFCircuit<Fr>>(
+            &poseidon_config,
+            f_circuit,
+        )
+        .unwrap();
+        let start = Instant::now();
+        let (kzg_pk, kzg_vk): (KZGProverKey<G1>, KZGVerifierKey<Bn254>) =
+            KZG::<Bn254>::setup(&mut rng, cs_len).unwrap();
+        let (cf_pedersen_params, _) = Pedersen::<G2>::setup(&mut rng, cf_cs_len).unwrap();
+        println!("generated KZG params, {:?}", start.elapsed());
+
+        let prover_params = ProverParams::<G1, G2, KZG<Bn254>, Pedersen<G2>> {
+            poseidon_config: poseidon_config.clone(),
+            cs_params: kzg_pk.clone(),
+            cf_cs_params: cf_pedersen_params,
+        };
+
+        let start = Instant::now();
+        let mut nova = NOVA::init(&prover_params, f_circuit, z_0.clone()).unwrap();
+        println!("Nova initialized, {:?}", start.elapsed());
+        let start = Instant::now();
+        nova.prove_step().unwrap();
+        println!("prove_step, {:?}", start.elapsed());
+
+        // generate Groth16 setup
+        let circuit =
+            DeciderEthCircuit::<G1, GVar, G2, GVar2, KZG<Bn254>, Pedersen<G2>>::from_nova::<
+                CubicFCircuit<Fr>,
+            >(nova.clone())
+            .unwrap();
+        let mut rng = rand::rngs::OsRng;
+
+        let start = Instant::now();
+        let (g16_pk, g16_vk) =
+            Groth16::<Bn254>::circuit_specific_setup(circuit.clone(), &mut rng).unwrap();
+        println!("Groth16 setup, {:?}", start.elapsed());
+
+        // decider proof generation
+        let start = Instant::now();
+        let decider_pp = (poseidon_config.clone(), g16_pk, kzg_pk.clone());
+        let proof = DECIDER::prove(decider_pp, rng, nova.clone()).unwrap();
+        println!("Decider prove, {:?}", start.elapsed());
+
+        // decider proof verification
+        let start = Instant::now();
+        let decider_vp = (g16_vk.clone(), kzg_vk.clone());
+        let verified = DECIDER::verify(
+            decider_vp,
+            nova.i,
+            nova.z_0.clone(),
+            nova.z_i.clone(),
+            &nova.U_i,
+            &nova.u_i,
+            &proof,
+        )
+        .unwrap();
+        assert!(verified);
+        println!("Decider verify, {:?}", start.elapsed());
+        (nova, kzg_pk, kzg_vk, g16_vk, proof)
     }
 }

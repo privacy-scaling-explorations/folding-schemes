@@ -3,7 +3,7 @@
 #![allow(non_camel_case_types)]
 #![allow(clippy::upper_case_acronyms)]
 
-use ark_ec::CurveGroup;
+use ark_ec::{pairing::Pairing, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::rand::CryptoRng;
 use ark_std::{fmt::Debug, rand::RngCore};
@@ -172,8 +172,27 @@ pub trait Decider<
         z_i: Vec<C1::ScalarField>,
         running_instance: &Self::CommittedInstance,
         incoming_instance: &Self::CommittedInstance,
-        proof: Self::Proof,
+        proof: &Self::Proof,
         // returns `Result<bool, Error>` to differentiate between an error occurred while performing
         // the verification steps, and the verification logic of the scheme not passing.
     ) -> Result<bool, Error>;
+}
+
+/// DeciderOnchain extends the Decider into preparing the calldata
+pub trait DeciderOnchain<E: Pairing, C1: CurveGroup, C2: CurveGroup>
+where
+    C1: CurveGroup<BaseField = C2::ScalarField, ScalarField = C2::BaseField>,
+    C2::BaseField: PrimeField,
+{
+    type Proof;
+    type CommittedInstance: Clone + Debug;
+
+    fn prepare_calldata(
+        i: C1::ScalarField,
+        z_0: Vec<C1::ScalarField>,
+        z_i: Vec<C1::ScalarField>,
+        running_instance: &Self::CommittedInstance,
+        incoming_instance: &Self::CommittedInstance,
+        proof: Self::Proof,
+    ) -> Result<Vec<u8>, Error>;
 }

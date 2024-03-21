@@ -13,12 +13,14 @@ ark-poly-commit = "^0.4.0"
 ark-relations = { version = "^0.4.0", default-features = false }
 ark-r1cs-std = { version = "0.4.0", default-features = false } # this is patched at the workspace level
 ark-snark = { version = "^0.4.0"}
+ark-groth16 = { version = "^0.4.0" }
 ark-serialize = "^0.4.0"
 ark-circom = { git = "https://github.com/gakonst/ark-circom.git" }
 thiserror = "1.0"
 rayon = "1.7.0"
 num-bigint = "0.4"
 color-eyre = "=0.6.2"
+ark-bn254 = {version="0.4.0", features=["r1cs"]}
 
 # tmp imports for espresso's sumcheck
 espresso_subroutines = {git="https://github.com/EspressoSystems/hyperplonk", package="subroutines"}
@@ -26,9 +28,7 @@ espresso_subroutines = {git="https://github.com/EspressoSystems/hyperplonk", pac
 [dev-dependencies]
 ark-pallas = {version="0.4.0", features=["r1cs"]}
 ark-vesta = {version="0.4.0", features=["r1cs"]}
-ark-bn254 = {version="0.4.0", features=["r1cs"]}
 ark-grumpkin = {version="0.4.0", features=["r1cs"]}
-ark-groth16 = { version = "^0.4.0" }
 rand = "0.8.5"
 tracing = { version = "0.1", default-features = false, features = [ "attributes" ] }
 tracing-subscriber = { version = "0.2" }

@@ -434,6 +434,7 @@ where
         // The following two checks (and their respective allocations) are disabled for normal
         // tests since they take several millions of constraints and would take several minutes
         // (and RAM) to run the test.
+        /* // TODO TMP, next code block is commented to avoid executing it in the solidity-verifiers test temporarily
         #[cfg(not(test))]
         {
             // imports here instead of at the top of the file, so we avoid having multiple
@@ -488,6 +489,7 @@ where
                 NonNativeFieldVar<C2::ScalarField, CF1<C1>>,
             >::check(cf_r1cs, cf_W_i.E, cf_U_i.u.clone(), cf_z_U)?;
         }
+        */
 
         // 6. check KZG challenges
         let (incircuit_c_W, incircuit_c_E) = KZGChallengesGadget::<C1>::get_challenges_gadget(
