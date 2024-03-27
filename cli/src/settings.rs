@@ -87,7 +87,7 @@ Solidity Verifier currently supports the generation of Solidity smart contracts 
 #[command(author = "0XPARC & PSE", version, about = ABOUT, long_about = Some(LONG_ABOUT))]
 #[command(propagate_version = true)]
 /// A tool to create Solidity Contracts which act as verifiers for the major Folding Schemes implemented
-/// within the `folding-schemes` repo.
+/// within the `sonobe` repo.
 pub(crate) struct Cli {
     #[command(flatten)]
     pub verbosity: clap_verbosity_flag::Verbosity,

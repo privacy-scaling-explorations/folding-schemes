@@ -54,7 +54,7 @@ This would generate a Groth16 verifier contract for the given G16 data (which co
     -v, --verbose: Increase logging verbosity
     -q, --quiet: Decrease logging verbosity
     -p, --protocol <PROTOCOL>: Selects the protocol for which to generate the Decider circuit Solidity Verifier (possible values: groth16, kzg, nova-cyclefold)
-    -o, --out <OUT>: Sets the output path for all generated artifacts (default: /home/kr0/Desktop/HDD/ethereum/folding-schemes/verifier.sol)
+    -o, --out <OUT>: Sets the output path for all generated artifacts
     -d, --protocol-data <PROTOCOL_DATA>: Sets the input path for the file containing all the data required by the chosen protocol for verification contract generation
     --pragma <PRAGMA>: Selects the Solidity compiler version to be set in the Solidity Verifier contract artifact
     -h, --help: Print help (see a summary with '-h')

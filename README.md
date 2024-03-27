@@ -1,10 +1,28 @@
-# folding-schemes
-(brief description) .. implemented on [arkworks](https://github.com/arkworks-rs).
+# sonobe
 
-> **Warning**: experimental code, do not use in production.
+Experimental folding schemes library implemented in a joint effort of [0xPARC](https://0xparc.org/) and [PSE](https://pse.dev).
+
+
+<img align="left" style="width:30%;min-width:250px;" src="docs/imgs/sonobe-folding-schemes.png">
+
+<br>
+<b>Sonobe</b> is a modular library to fold circuit instances in an Incremental Verifiable computation (IVC), which allows to generate a zkSNARK proof of the circuit foldings that can be verified in Ethereum's EVM.
+<br><br>
+<i>"The <a href="https://en.wikipedia.org/wiki/Sonobe">Sonobe module</a> is one of the many units used to build modular origami. The popularity of Sonobe modular origami models derives from the simplicity of folding the modules, the sturdy and easy assembly, and the flexibility of the system."</i>
+
+<br>
+
+*(img is temporary, will replace it by a better one)*<br>
+[TODO before finishing the PR, move all image files into a `imgs` directory or similar]
+
+<br>
+
+> **Warning**: experimental code, do not use in production.<br>
 > The code has not been audited, and we have pending to implement several optimizations. The focus so far has been on implementing from scratch Nova + CycleFold and achieving onchain (EVM) verification.
 
 ## Schemes implemented
+The library uses [arkworks](https://github.com/arkworks-rs), and implements the following folding schemes:
+
 - [Nova: Recursive Zero-Knowledge Arguments from Folding Schemes](https://eprint.iacr.org/2021/370.pdf), Abhiram Kothapalli, Srinath Setty, Ioanna Tzialla. 2021
 - [CycleFold: Folding-scheme-based recursive arguments over a cycle of elliptic curves](https://eprint.iacr.org/2023/1192.pdf), Abhiram Kothapalli, Srinath Setty. 2023
 
@@ -14,7 +32,7 @@ Work in progress:
 - [ProtoGalaxy: Efficient ProtoStar-style folding of multiple instances](https://eprint.iacr.org/2023/1106.pdf), Liam Eagen, Ariel Gabizon. 2023
 
 ### Available frontends
-Available frontends to define the folded circuit.
+Available frontends to define the folded circuit:
 
 - [arkworks](https://github.com/arkworks-rs), arkworks contributors
 - [Circom](https://github.com/iden3/circom), iden3, 0Kims Association
@@ -22,7 +40,10 @@ Available frontends to define the folded circuit.
 ## Usage
 
 ### Folding Schemes introduction
-[introductory text here]
+
+[introductory text here (TODO)]
+
+[TODO diagram showing the folding concept]
 
 - https://youtu.be/IzLTpKWt-yg?t=6367 , where [Carlos Pérez](https://twitter.com/CPerezz19) overviews the features of folding schemes and what can be build with them.
 
@@ -31,16 +52,16 @@ Suppose that the user inputs a circuit that follows the IVC structure, chooses w
 
 Later the user can for example change with few code changes the Folding Scheme being used (eg. switch to ProtoGalaxy) and also the Decider (eg. Groth16 over bn254), so the final proof can be verified in an Ethereum smart contract.
 
-![](folding-schemes-lib-pipeline.png)
+![](docs/imgs/folding-schemes-lib-pipeline.png)
 
-Complete examples can be found at [folding-schemes/examples](https://github.com/privacy-scaling-explorations/folding-schemes/tree/main/folding-schemes/examples)
+Complete examples can be found at [folding-schemes/examples](https://github.com/privacy-scaling-explorations/sonobe/tree/main/folding-schemes/examples)
 
 ### The folding circuit
 For the next example, we're going to use Nova+CycleFold for the folding, with the On-chain (EVM) verifier.
 
 The following image provides a description of the main Nova circuit and CycleFold circuit over a couple of steps.
 
-![](cyclefold-nova-diagram.png)
+![](docs/imgs/cyclefold-nova-diagram.png)
 
 ### Define the circuit to be folded
 First let's define our circuit to be folded:
@@ -120,7 +141,7 @@ for i in 0..num_steps {
     println!("Nova::prove_step {}: {:?}", i, start.elapsed());
 }
 
-let (running_instance, incomming_instance, cyclefold_instance) = folding_scheme.instances();
+let (running_instance, incoming_instance, cyclefold_instance) = folding_scheme.instances();
 
 println!("Run the Nova's IVC verifier");
 NOVA::verify(
@@ -129,7 +150,7 @@ NOVA::verify(
     folding_scheme.state(), // latest state
     Fr::from(num_steps as u32),
     running_instance,
-    incomming_instance,
+    incoming_instance,
     cyclefold_instance,
 )
 .unwrap();
@@ -138,17 +159,15 @@ NOVA::verify(
 ### Final proof (decider proof)
 Two options:
 
-- offchain mode
 - onchain (Ethereum's EVM) mode
+- offchain mode
 
 Once we have been folding our circuit instances, we can generate the *"final proof"*, the Decider proof.
 
 
-#### Offchain Decider
-
 #### Onchain Decider
 
-![](decider-onchain-flow-diagram.png)
+![](docs/imgs/decider-onchain-flow-diagram.png)
 
 Generating the final proof (decider), to be able to verify it in Ethereum's EVM:
 
@@ -191,7 +210,11 @@ let verified = DECIDER::verify(decider_vp, nova.i, nova.z_0, nova.z_i, &nova.U_i
 assert!(verified);
 ```
 
-As mentioned above, complete examples can be found at [folding-schemes/examples](https://github.com/privacy-scaling-explorations/folding-schemes/tree/main/folding-schemes/examples)
+As mentioned above, complete examples can be found at [folding-schemes/examples](https://github.com/privacy-scaling-explorations/sonobe/tree/main/folding-schemes/examples)
+
+#### Offchain Decider
+Not available yet, meanwhile the onchain Decider can be used also offchain. We plan to implement a separate offchain decider which will be more efficient and faster generating the proofs (without EVM constraints).
+
 
 ### Swapping curves and proving schemes
 Thanks to the modularity of arkworks, we can swap between curves and proving systems.
@@ -207,7 +230,7 @@ First we need to generate the Solidity contracts that verify the Decider proofs.
 ```
 
 ## License
-https://github.com/privacy-scaling-explorations/folding-schemes/blob/main/LICENSE
+https://github.com/privacy-scaling-explorations/sonobe/blob/main/LICENSE
 
 [TODO: add references to
 - arkworks
@@ -216,5 +239,5 @@ https://github.com/privacy-scaling-explorations/folding-schemes/blob/main/LICENS
     - Groth16: Jordi Baylina
     - KZG10: weijiekoh
     - Templating: Han
-- People who helped us: Srinath Setty, Lev57, Matej (Lurk), Adrien (Lurk), TODO
+- People who helped us: Srinath Setty, Lev57, Matej (Lurk), Adrien (Lurk), Wyatt Benno TODO
 ]
