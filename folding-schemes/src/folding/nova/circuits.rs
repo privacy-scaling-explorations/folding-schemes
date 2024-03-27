@@ -108,8 +108,10 @@ where
             self.x,
             self.cmE.x.to_constraint_field()?,
             self.cmE.y.to_constraint_field()?,
+            self.cmE.infinity.to_constraint_field()?,
             self.cmW.x.to_constraint_field()?,
             self.cmW.y.to_constraint_field()?,
+            self.cmW.infinity.to_constraint_field()?,
         ]
         .concat();
         let input = [vec![i], z_0, z_i, U_vec.clone()].concat();
@@ -173,11 +175,11 @@ where
         u_i: CommittedInstance<C>,
         cmT: C,
     ) -> Result<Vec<bool>, SynthesisError> {
-        let (U_cmE_x, U_cmE_y) = point_to_nonnative_limbs::<C>(U_i.cmE)?;
-        let (U_cmW_x, U_cmW_y) = point_to_nonnative_limbs::<C>(U_i.cmW)?;
-        let (u_cmE_x, u_cmE_y) = point_to_nonnative_limbs::<C>(u_i.cmE)?;
-        let (u_cmW_x, u_cmW_y) = point_to_nonnative_limbs::<C>(u_i.cmW)?;
-        let (cmT_x, cmT_y) = point_to_nonnative_limbs::<C>(cmT)?;
+        let (U_cmE_x, U_cmE_y, U_cmE_inf) = point_to_nonnative_limbs::<C>(U_i.cmE)?;
+        let (U_cmW_x, U_cmW_y, U_cmW_inf) = point_to_nonnative_limbs::<C>(U_i.cmW)?;
+        let (u_cmE_x, u_cmE_y, u_cmE_inf) = point_to_nonnative_limbs::<C>(u_i.cmE)?;
+        let (u_cmW_x, u_cmW_y, u_cmW_inf) = point_to_nonnative_limbs::<C>(u_i.cmW)?;
+        let (cmT_x, cmT_y, cmT_inf) = point_to_nonnative_limbs::<C>(cmT)?;
 
         let mut sponge = PoseidonSponge::<C::ScalarField>::new(poseidon_config);
         let input = vec![
@@ -185,16 +187,21 @@ where
             U_i.x.clone(),
             U_cmE_x,
             U_cmE_y,
+            U_cmE_inf,
             U_cmW_x,
             U_cmW_y,
+            U_cmW_inf,
             vec![u_i.u],
             u_i.x.clone(),
             u_cmE_x,
             u_cmE_y,
+            u_cmE_inf,
             u_cmW_x,
             u_cmW_y,
+            u_cmW_inf,
             cmT_x,
             cmT_y,
+            cmT_inf,
         ]
         .concat();
         sponge.absorb(&input);
@@ -218,10 +225,13 @@ where
             u_i.x.clone(),
             u_i.cmE.x.to_constraint_field()?,
             u_i.cmE.y.to_constraint_field()?,
+            u_i.cmE.infinity.to_constraint_field()?,
             u_i.cmW.x.to_constraint_field()?,
             u_i.cmW.y.to_constraint_field()?,
+            u_i.cmW.infinity.to_constraint_field()?,
             cmT.x.to_constraint_field()?,
             cmT.y.to_constraint_field()?,
+            cmT.infinity.to_constraint_field()?,
         ]
         .concat();
         sponge.absorb(&input)?;
@@ -251,6 +261,7 @@ pub struct AugmentedFCircuit<
     pub u_i: Option<CommittedInstance<C1>>,
     pub U_i: Option<CommittedInstance<C1>>,
     pub U_i1: Option<CommittedInstance<C1>>,
+    pub r_nonnat: Option<CF2<C1>>,
     pub cmT: Option<C1>,
     pub F: FC,              // F circuit
     pub x: Option<CF1<C1>>, // public inputs (u_{i+1}.x)
@@ -285,6 +296,7 @@ where
             u_i: None,
             U_i: None,
             U_i1: None,
+            r_nonnat: None,
             cmT: None,
             F: F_circuit,
             x: None,
@@ -340,6 +352,10 @@ where
         let U_i1 = CommittedInstanceVar::<C1>::new_witness(cs.clone(), || {
             Ok(self.U_i1.unwrap_or(u_dummy_native.clone()))
         })?;
+        let r_nonnat =
+            NonNativeFieldVar::<C1::BaseField, C1::ScalarField>::new_witness(cs.clone(), || {
+                Ok(self.r_nonnat.unwrap_or_else(CF2::<C1>::zero))
+            })?;
         let cmT =
             NonNativeAffineVar::new_witness(cs.clone(), || Ok(self.cmT.unwrap_or_else(C1::zero)))?;
         let x =
@@ -363,7 +379,6 @@ where
         let (u_i_x, U_i_vec) =
             U_i.clone()
                 .hash(&crh_params, i.clone(), z_0.clone(), z_i.clone())?;
-
         // check that h == u_i.x
         (u_i.x[0]).conditional_enforce_equal(&u_i_x, &is_not_basecase)?;
 
@@ -390,6 +405,11 @@ where
             cmT.clone(),
         )?;
         let r = Boolean::le_bits_to_fp_var(&r_bits)?;
+
+        // enforce that the input r_nonnat as bits matches the in-circuit computed r_bits
+        let r_nonnat_bits: Vec<Boolean<C1::ScalarField>> =
+            r_nonnat.to_bits_le()?.into_iter().take(128).collect();
+        r_nonnat_bits.enforce_equal(&r_bits)?;
 
         // Notice that NIFSGadget::verify is not checking the folding of cmE & cmW, since it will
         // be done on the other curve.
@@ -436,10 +456,28 @@ where
             })?;
 
         let cfW_x: Vec<NonNativeFieldVar<C1::BaseField, C1::ScalarField>> = vec![
-            U_i.cmW.x, U_i.cmW.y, u_i.cmW.x, u_i.cmW.y, U_i1.cmW.x, U_i1.cmW.y,
+            r_nonnat.clone(),
+            U_i.cmW.x,
+            U_i.cmW.y,
+            U_i.cmW.infinity,
+            u_i.cmW.x,
+            u_i.cmW.y,
+            u_i.cmW.infinity,
+            U_i1.cmW.x,
+            U_i1.cmW.y,
+            U_i1.cmW.infinity,
         ];
         let cfE_x: Vec<NonNativeFieldVar<C1::BaseField, C1::ScalarField>> = vec![
-            U_i.cmE.x, U_i.cmE.y, u_i.cmE.x, u_i.cmE.y, U_i1.cmE.x, U_i1.cmE.y,
+            r_nonnat,
+            U_i.cmE.x,
+            U_i.cmE.y,
+            U_i.cmE.infinity,
+            cmT.x,
+            cmT.y,
+            cmT.infinity,
+            U_i1.cmE.x,
+            U_i1.cmE.y,
+            U_i1.cmE.infinity,
         ];
 
         // ensure that cf1_u & cf2_u have as public inputs the cmW & cmE from main instances U_i,
@@ -655,8 +693,10 @@ pub mod tests {
             U_iVar.x.clone(),
             U_iVar.cmE.x.to_constraint_field().unwrap(),
             U_iVar.cmE.y.to_constraint_field().unwrap(),
+            U_iVar.cmE.infinity.to_constraint_field().unwrap(),
             U_iVar.cmW.x.to_constraint_field().unwrap(),
             U_iVar.cmW.y.to_constraint_field().unwrap(),
+            U_iVar.cmW.infinity.to_constraint_field().unwrap(),
         ]
         .concat();
         let r_bitsVar = ChallengeGadget::<Projective>::get_challenge_gadget(

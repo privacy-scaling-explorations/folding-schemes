@@ -244,7 +244,7 @@ impl<C1, GC1, C2, GC2, CS1, CS2> DeciderEthCircuit<C1, GC1, C2, GC2, CS1, CS2>
 where
     C1: CurveGroup,
     C2: CurveGroup,
-    GC1: CurveVar<C1, CF2<C1>>,
+    GC1: CurveVar<C1, CF2<C1>> + ToConstraintFieldGadget<CF2<C1>>,
     GC2: CurveVar<C2, CF2<C2>>,
     CS1: CommitmentScheme<C1>,
     // enforce that the CS2 is Pedersen commitment scheme, since we're at Ethereum's EVM decider
@@ -551,6 +551,7 @@ fn evaluate_gadget<F: PrimeField>(
 pub struct KZGChallengesGadget<C: CurveGroup> {
     _c: PhantomData<C>,
 }
+#[allow(clippy::type_complexity)]
 impl<C> KZGChallengesGadget<C>
 where
     C: CurveGroup,
@@ -562,10 +563,16 @@ where
         poseidon_config: &PoseidonConfig<C::ScalarField>,
         U_i: CommittedInstance<C>,
     ) -> Result<(C::ScalarField, C::ScalarField), Error> {
-        let (cmE_x_limbs, cmE_y_limbs): (Vec<C::ScalarField>, Vec<C::ScalarField>) =
-            point_to_nonnative_limbs::<C>(U_i.cmE)?;
-        let (cmW_x_limbs, cmW_y_limbs): (Vec<C::ScalarField>, Vec<C::ScalarField>) =
-            point_to_nonnative_limbs::<C>(U_i.cmW)?;
+        let (cmE_x_limbs, cmE_y_limbs, _): (
+            Vec<C::ScalarField>,
+            Vec<C::ScalarField>,
+            Vec<C::ScalarField>,
+        ) = point_to_nonnative_limbs::<C>(U_i.cmE)?;
+        let (cmW_x_limbs, cmW_y_limbs, _): (
+            Vec<C::ScalarField>,
+            Vec<C::ScalarField>,
+            Vec<C::ScalarField>,
+        ) = point_to_nonnative_limbs::<C>(U_i.cmW)?;
 
         let transcript = &mut PoseidonTranscript::<C>::new(poseidon_config);
         // compute the KZG challenges, which are computed in-circuit and checked that it matches
@@ -580,7 +587,6 @@ where
         Ok((challenge_W, challenge_E))
     }
     // compatible with the native get_challenges_native
-    #[allow(clippy::type_complexity)]
     pub fn get_challenges_gadget(
         cs: ConstraintSystemRef<C::ScalarField>,
         poseidon_config: &PoseidonConfig<C::ScalarField>,
@@ -860,7 +866,6 @@ pub mod tests {
         // generate the constraints and check that are satisfied by the inputs
         decider_circuit.generate_constraints(cs.clone()).unwrap();
         assert!(cs.is_satisfied().unwrap());
-        dbg!(cs.num_constraints());
     }
 
     // checks that the gadget and native implementations of the challenge computation match

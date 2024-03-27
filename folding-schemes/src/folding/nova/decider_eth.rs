@@ -3,7 +3,7 @@ use ark_crypto_primitives::sponge::{poseidon::PoseidonConfig, Absorb};
 use ark_ec::{CurveGroup, Group};
 use ark_ff::{BigInteger, PrimeField};
 use ark_r1cs_std::fields::nonnative::params::OptimizationType;
-use ark_r1cs_std::{groups::GroupOpsBounds, prelude::CurveVar};
+use ark_r1cs_std::{groups::GroupOpsBounds, prelude::CurveVar, ToConstraintFieldGadget};
 use ark_snark::SNARK;
 use ark_std::rand::{CryptoRng, RngCore};
 use ark_std::Zero;
@@ -60,7 +60,7 @@ impl<C1, GC1, C2, GC2, FC, CS1, CS2, S, FS> DeciderTrait<C1, C2, FC, FS>
 where
     C1: CurveGroup,
     C2: CurveGroup,
-    GC1: CurveVar<C1, CF2<C1>>,
+    GC1: CurveVar<C1, CF2<C1>> + ToConstraintFieldGadget<CF2<C1>>,
     GC2: CurveVar<C2, CF2<C2>>,
     FC: FCircuit<C1::ScalarField>,
     CS1: CommitmentScheme<
@@ -189,11 +189,11 @@ where
         // compute U = U_{d+1}= NIFS.V(U_d, u_d, cmT)
         let U = NIFS::<C1, CS1>::verify(proof.r, running_instance, incoming_instance, &proof.cmT);
 
-        let (cmE_x, cmE_y) =
+        let (cmE_x, cmE_y, cmE_inf) =
             point_to_nonnative_limbs_custom_opt::<C1>(U.cmE, OptimizationType::Constraints)?;
-        let (cmW_x, cmW_y) =
+        let (cmW_x, cmW_y, cmW_inf) =
             point_to_nonnative_limbs_custom_opt::<C1>(U.cmW, OptimizationType::Constraints)?;
-        let (cmT_x, cmT_y) =
+        let (cmT_x, cmT_y, cmT_inf) =
             point_to_nonnative_limbs_custom_opt::<C1>(proof.cmT, OptimizationType::Constraints)?;
 
         let public_input: Vec<C1::ScalarField> = vec![
@@ -204,8 +204,10 @@ where
             U.x.clone(),
             cmE_x,
             cmE_y,
+            cmE_inf,
             cmW_x,
             cmW_y,
+            cmW_inf,
             proof.kzg_challenges.to_vec(),
             vec![
                 proof.kzg_proofs[0].eval, // eval_W
@@ -213,6 +215,7 @@ where
             ],
             cmT_x,
             cmT_y,
+            cmT_inf,
             vec![proof.r],
         ]
         .concat();
