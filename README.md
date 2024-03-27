@@ -3,17 +3,16 @@
 Experimental folding schemes library implemented in a joint effort of [0xPARC](https://0xparc.org/) and [PSE](https://pse.dev).
 
 
-<img align="left" style="width:30%;min-width:250px;" src="docs/imgs/sonobe-folding-schemes.png">
+<img align="left" style="width:30%;min-width:250px;" src="imgs/sonobe.png">
 
 <br>
-<b>Sonobe</b> is a modular library to fold circuit instances in an Incremental Verifiable computation (IVC), which allows to generate a zkSNARK proof of the circuit foldings that can be verified in Ethereum's EVM.
+<b>Sonobe</b> is a modular library to fold circuit instances in an Incremental Verifiable computation (IVC) style, which allows to generate a zkSNARK proof of the circuit foldings that can be verified in Ethereum's EVM.
 <br><br>
 <i>"The <a href="https://en.wikipedia.org/wiki/Sonobe">Sonobe module</a> is one of the many units used to build modular origami. The popularity of Sonobe modular origami models derives from the simplicity of folding the modules, the sturdy and easy assembly, and the flexibility of the system."</i>
 
 <br>
 
 *(img is temporary, will replace it by a better one)*<br>
-[TODO before finishing the PR, move all image files into a `imgs` directory or similar]
 
 <br>
 
@@ -43,16 +42,16 @@ Available frontends to define the folded circuit:
 
 [introductory text here (TODO)]
 
-![](docs/imgs/folding-main-idea-diagram.png)
+<img src="imgs/folding-main-idea-diagram.png" style="width:70%;" />
 
 - https://youtu.be/IzLTpKWt-yg?t=6367 , where [Carlos Pérez](https://twitter.com/CPerezz19) overviews the features of folding schemes and what can be build with them.
 
-### Overview
+### Overview of sonobe
 Suppose that the user inputs a circuit that follows the IVC structure, chooses which Folding Scheme to use (eg. Nova), and which Decider (eg. Spartan over Pasta curve).
 
 Later the user can for example change with few code changes the Folding Scheme being used (eg. switch to ProtoGalaxy) and also the Decider (eg. Groth16 over bn254), so the final proof can be verified in an Ethereum smart contract.
 
-![](docs/imgs/folding-schemes-lib-pipeline.png)
+![](imgs/sonobe-lib-pipeline.png)
 
 Complete examples can be found at [folding-schemes/examples](https://github.com/privacy-scaling-explorations/sonobe/tree/main/folding-schemes/examples)
 
@@ -61,7 +60,7 @@ For the next example, we're going to use Nova+CycleFold for the folding, with th
 
 The following image provides a description of the main Nova circuit and CycleFold circuit over a couple of steps.
 
-![](docs/imgs/cyclefold-nova-diagram.png)
+![](imgs/cyclefold-nova-diagram.png)
 
 ### Define the circuit to be folded
 First let's define our circuit to be folded:
@@ -167,7 +166,7 @@ Once we have been folding our circuit instances, we can generate the *"final pro
 
 #### Onchain Decider
 
-![](docs/imgs/decider-onchain-flow-diagram.png)
+![](imgs/decider-onchain-flow-diagram.png)
 
 Generating the final proof (decider), to be able to verify it in Ethereum's EVM:
 
