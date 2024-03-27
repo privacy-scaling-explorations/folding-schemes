@@ -499,7 +499,7 @@ where
         incircuit_c_E.enforce_equal(&kzg_c_E)?;
 
         // Check 7 is temporary disabled due
-        // https://github.com/privacy-scaling-explorations/folding-schemes/issues/80
+        // https://github.com/privacy-scaling-explorations/sonobe/issues/80
         //
         // 7. check eval_W==p_W(c_W) and eval_E==p_E(c_E)
         // let incircuit_eval_W = evaluate_gadget::<CF1<C1>>(W_i1.W, incircuit_c_W)?;
@@ -902,7 +902,7 @@ pub mod tests {
     }
 
     // The test test_polynomial_interpolation is temporary disabled due
-    // https://github.com/privacy-scaling-explorations/folding-schemes/issues/80
+    // https://github.com/privacy-scaling-explorations/sonobe/issues/80
     // for n<=11 it will work, but for n>11 it will fail with stack overflow.
     #[ignore]
     #[test]

@@ -43,7 +43,7 @@ impl Protocol {
     }
 }
 
-const ABOUT: &str = "A powerful Command-Line Interface (CLI) tool designed to simplify the generation of Solidity smart contracts that verify proofs of Zero Knowledge cryptographic protocols.
+const ABOUT: &str = "A Command-Line Interface (CLI) tool designed to simplify the generation of Solidity smart contracts that verify proofs of Zero Knowledge cryptographic protocols.
 ";
 
 const LONG_ABOUT: &str = "
@@ -68,10 +68,9 @@ const LONG_ABOUT: &str = "
 |  ()  ||  ()  ||  ()  ||  ()  ||  ()  ||  ()  ||  ()  |
 |______||______||______||______||______||______||______|
 
-Welcome to Solidity Verifier, a powerful Command-Line Interface (CLI) tool designed to simplify the generation of Solidity smart contracts that verify proofs of Zero Knowledge cryptographic protocols.
-for Zero Knowledge protocols. This tool is developed by the collaborative efforts of the PSE (Privacy & Scaling Explorations) and 0XPARC teams. 
+Welcome to Solidity Verifiers CLI, a Command-Line Interface (CLI) tool designed to simplify the generation of Solidity smart contracts that verify proofs of Zero Knowledge cryptographic protocols. This tool is developed by the collaborative efforts of the PSE (Privacy & Scaling Explorations) and 0XPARC teams.
 
-As an open-source project, Solidity Verifier is released under the GPL3 license.
+Solidity Verifiers CLI is released under the MIT license, but notice that the Solidity template for the Groth16 verification has GPL-3.0 license, hence the generated Solidity verifiers that use the Groth16 template will have that license too.
 
 Solidity Verifier currently supports the generation of Solidity smart contracts for the verification of proofs in the following Zero Knowledge protocols:
 
@@ -82,13 +81,13 @@ Solidity Verifier currently supports the generation of Solidity smart contracts 
         Uses the Kate-Zaverucha-Goldberg polynomial commitment scheme.
 
     Nova + CycleFold Decider:
-        Implements the decider circuit verification for the Nova zero-knowledge proof system in conjunction with the CycleFold protocol optimization.
+        Implements the decider circuit verification for the Nova proof system in conjunction with the CycleFold protocol optimization.
 ";
 #[derive(Debug, Parser)]
 #[command(author = "0XPARC & PSE", version, about = ABOUT, long_about = Some(LONG_ABOUT))]
 #[command(propagate_version = true)]
 /// A tool to create Solidity Contracts which act as verifiers for the major Folding Schemes implemented
-/// within the `folding-schemes` repo.
+/// within the `sonobe` repo.
 pub(crate) struct Cli {
     #[command(flatten)]
     pub verbosity: clap_verbosity_flag::Verbosity,
