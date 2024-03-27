@@ -43,7 +43,7 @@ Available frontends to define the folded circuit:
 
 [introductory text here (TODO)]
 
-[TODO diagram showing the folding concept]
+![](docs/imgs/folding-main-idea-diagram.png)
 
 - https://youtu.be/IzLTpKWt-yg?t=6367 , where [Carlos Pérez](https://twitter.com/CPerezz19) overviews the features of folding schemes and what can be build with them.
 
