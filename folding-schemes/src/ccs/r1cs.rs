@@ -168,6 +168,22 @@ pub mod tests {
         ])
     }
 
+    pub fn get_test_z_split<F: PrimeField>(input: usize) -> (F, Vec<F>, Vec<F>) {
+        // z = (1, io, w)
+        (
+            F::one(),
+            to_F_vec(vec![
+                input, // io
+            ]),
+            to_F_vec(vec![
+                input * input * input + input + 5, // x^3 + x + 5
+                input * input,                     // x^2
+                input * input * input,             // x^2 * x
+                input * input * input + input,     // x^3 + x
+            ]),
+        )
+    }
+
     #[test]
     fn test_check_relation() {
         let r1cs = get_test_r1cs::<Fr>();

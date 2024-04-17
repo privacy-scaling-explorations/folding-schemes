@@ -10,11 +10,13 @@ pub mod folding;
 pub mod traits;
 pub(crate) mod utils;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommittedInstance<C: CurveGroup> {
     phi: C,
     betas: Vec<C::ScalarField>,
     e: C::ScalarField,
+    u: C::ScalarField,
+    x: Vec<C::ScalarField>,
 }
 
 #[derive(Clone, Debug)]
@@ -22,6 +24,8 @@ pub struct CommittedInstanceVar<C: CurveGroup> {
     phi: NonNativeAffineVar<C>,
     betas: Vec<FpVar<C::ScalarField>>,
     e: FpVar<C::ScalarField>,
+    u: FpVar<C::ScalarField>,
+    x: Vec<FpVar<C::ScalarField>>,
 }
 
 #[derive(Clone, Debug)]

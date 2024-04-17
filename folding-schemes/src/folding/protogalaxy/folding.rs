@@ -6,7 +6,7 @@ use ark_poly::{
     univariate::{DensePolynomial, SparsePolynomial},
     DenseUVPolynomial, EvaluationDomain, Evaluations, GeneralEvaluationDomain, Polynomial,
 };
-use ark_std::{cfg_into_iter, log2, Zero};
+use ark_std::{cfg_into_iter, Zero, log2};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::marker::PhantomData;
 
@@ -63,10 +63,13 @@ where
         let k = vec_instances.len();
         let t = instance.betas.len();
         let n = r1cs.A.n_cols;
-        if w.w.len() != n {
+
+        let z = [vec![instance.u], instance.x.clone(), w.w.clone()].concat();
+
+        if z.len() != n {
             return Err(Error::NotSameLength(
-                "w.w.len()".to_string(),
-                w.w.len(),
+                "z.len()".to_string(),
+                z.len(),
                 "n".to_string(),
                 n,
             ));
@@ -85,11 +88,11 @@ where
         let delta = transcript.get_challenge();
         let deltas = exponential_powers(delta, t);
 
-        let f_w = eval_f(r1cs, &w.w)?;
+        let f_z = eval_f(r1cs, &z)?;
 
         // F(X)
         let F_X: SparsePolynomial<C::ScalarField> =
-            calc_f_from_btree(&f_w, &instance.betas, &deltas).expect("Error calculating F[x]");
+            calc_f_from_btree(&f_z, &instance.betas, &deltas).expect("Error calculating F[x]");
         let F_X_dense = DensePolynomial::from(F_X.clone());
         transcript.absorb(&F_X_dense.coeffs);
 
@@ -110,24 +113,28 @@ where
                 phi: instance.phi,
                 betas: betas_star.clone(),
                 e: F_alpha,
+                u: instance.u,
+                x: instance.x.clone(),
             },
             w,
         )?;
 
-        let ws: Vec<Vec<C::ScalarField>> = std::iter::once(w.w.clone())
+        let zs: Vec<Vec<C::ScalarField>> = std::iter::once(z.clone())
             .chain(
                 vec_w
                     .iter()
-                    .map(|wj| {
-                        if wj.w.len() != n {
+                    .zip(vec_instances)
+                    .map(|(wj, uj)| {
+                        let zj = [vec![uj.u], uj.x.clone(), wj.w.clone()].concat();
+                        if zj.len() != n {
                             return Err(Error::NotSameLength(
-                                "wj.w.len()".to_string(),
-                                wj.w.len(),
+                                "zj.len()".to_string(),
+                                zj.len(),
                                 "n".to_string(),
                                 n,
                             ));
                         }
-                        Ok(wj.w.clone())
+                        Ok(zj)
                     })
                     .collect::<Result<Vec<Vec<C::ScalarField>>, Error>>()?,
             )
@@ -144,17 +151,17 @@ where
         let mut G_evals: Vec<C::ScalarField> = vec![C::ScalarField::zero(); G_domain.size()];
         for (hi, h) in G_domain.elements().enumerate() {
             // each iteration evaluates G(h)
-            // inner = L_0(x) * w + \sum_k L_i(x) * w_j
-            let mut inner: Vec<C::ScalarField> = vec![C::ScalarField::zero(); ws[0].len()];
-            for (i, w) in ws.iter().enumerate() {
-                // Li_w_h = (Li(X)*wj)(h) = Li(h) * wj
-                let mut Liw_h: Vec<C::ScalarField> = vec![C::ScalarField::zero(); w.len()];
-                for (j, wj) in w.iter().enumerate() {
-                    Liw_h[j] = (&L_X[i] * *wj).evaluate(&h);
+            // inner = L_0(x) * z + \sum_k L_i(x) * z_j
+            let mut inner: Vec<C::ScalarField> = vec![C::ScalarField::zero(); zs[0].len()];
+            for (i, z) in zs.iter().enumerate() {
+                // Li_z_h = (Li(X)*zj)(h) = Li(h) * zj
+                let mut Liz_h: Vec<C::ScalarField> = vec![C::ScalarField::zero(); z.len()];
+                for (j, zj) in z.iter().enumerate() {
+                    Liz_h[j] = (&L_X[i] * *zj).evaluate(&h);
                 }
 
                 for j in 0..inner.len() {
-                    inner[j] += Liw_h[j];
+                    inner[j] += Liz_h[j];
                 }
             }
             let f_ev = eval_f(r1cs, &inner)?;
@@ -187,19 +194,27 @@ where
 
         let gamma = transcript.get_challenge();
 
-        let e_star =
-            F_alpha * L_X[0].evaluate(&gamma) + Z_X.evaluate(&gamma) * K_X.evaluate(&gamma);
+        let L_X_evals = L_X
+            .iter()
+            .take(k + 1)
+            .map(|L| L.evaluate(&gamma))
+            .collect::<Vec<_>>();
 
-        let mut phi_star: C = instance.phi * L_X[0].evaluate(&gamma);
+        let e_star = F_alpha * L_X_evals[0] + Z_X.evaluate(&gamma) * K_X.evaluate(&gamma);
+        let mut w_star = vec_scalar_mul(&w.w, &L_X_evals[0]);
+        let mut r_w_star = w.r_w * L_X_evals[0];
+        let mut phi_star = instance.phi * L_X_evals[0];
+        let mut u_star = instance.u * L_X_evals[0];
+        let mut x_star = vec_scalar_mul(&instance.x, &L_X_evals[0]);
         for i in 0..k {
-            phi_star += vec_instances[i].phi * L_X[i + 1].evaluate(&gamma);
-        }
-        let mut w_star: Vec<C::ScalarField> = vec_scalar_mul(&w.w, &L_X[0].evaluate(&gamma));
-        let mut r_w_star: C::ScalarField = w.r_w * L_X[0].evaluate(&gamma);
-        for i in 0..k {
-            let L_X_at_i1 = L_X[i + 1].evaluate(&gamma);
-            w_star = vec_add(&w_star, &vec_scalar_mul(&vec_w[i].w, &L_X_at_i1))?;
-            r_w_star += vec_w[i].r_w * L_X_at_i1;
+            w_star = vec_add(&w_star, &vec_scalar_mul(&vec_w[i].w, &L_X_evals[i + 1]))?;
+            r_w_star += vec_w[i].r_w * L_X_evals[i + 1];
+            phi_star += vec_instances[i].phi * L_X_evals[i + 1];
+            u_star += vec_instances[i].u * L_X_evals[i + 1];
+            x_star = vec_add(
+                &x_star,
+                &vec_scalar_mul(&vec_instances[i].x, &L_X_evals[i + 1]),
+            )?;
         }
 
         Ok((
@@ -207,6 +222,8 @@ where
                 betas: betas_star,
                 phi: phi_star,
                 e: e_star,
+                u: u_star,
+                x: x_star,
             },
             Witness {
                 w: w_star,
@@ -264,12 +281,24 @@ where
 
         let gamma = transcript.get_challenge();
 
-        let e_star =
-            F_alpha * L_X[0].evaluate(&gamma) + Z_X.evaluate(&gamma) * K_X.evaluate(&gamma);
+        let L_X_evals = L_X
+            .iter()
+            .take(k + 1)
+            .map(|L| L.evaluate(&gamma))
+            .collect::<Vec<_>>();
 
-        let mut phi_star: C = instance.phi * L_X[0].evaluate(&gamma);
+        let e_star = F_alpha * L_X_evals[0] + Z_X.evaluate(&gamma) * K_X.evaluate(&gamma);
+
+        let mut phi_star = instance.phi * L_X_evals[0];
+        let mut u_star = instance.u * L_X_evals[0];
+        let mut x_star = vec_scalar_mul(&instance.x, &L_X_evals[0]);
         for i in 0..k {
-            phi_star += vec_instances[i].phi * L_X[i + 1].evaluate(&gamma);
+            phi_star += vec_instances[i].phi * L_X_evals[i + 1];
+            u_star += vec_instances[i].u * L_X_evals[i + 1];
+            x_star = vec_add(
+                &x_star,
+                &vec_scalar_mul(&vec_instances[i].x, &L_X_evals[i + 1]),
+            )?;
         }
 
         // return the folded instance
@@ -277,6 +306,8 @@ where
             betas: betas_star,
             phi: phi_star,
             e: e_star,
+            u: u_star,
+            x: x_star,
         })
     }
 }
@@ -350,7 +381,9 @@ fn calc_f_from_btree<F: PrimeField>(
 }
 
 // lagrange_polys method from caulk: https://github.com/caulk-crypto/caulk/tree/8210b51fb8a9eef4335505d1695c44ddc7bf8170/src/multi/setup.rs#L300
-fn lagrange_polys<F: PrimeField>(domain_n: GeneralEvaluationDomain<F>) -> Vec<DensePolynomial<F>> {
+pub fn lagrange_polys<F: PrimeField>(
+    domain_n: GeneralEvaluationDomain<F>,
+) -> Vec<DensePolynomial<F>> {
     let mut lagrange_polynomials: Vec<DensePolynomial<F>> = Vec::new();
     for i in 0..domain_n.size() {
         let evals: Vec<F> = cfg_into_iter!(0..domain_n.size())
@@ -363,10 +396,10 @@ fn lagrange_polys<F: PrimeField>(domain_n: GeneralEvaluationDomain<F>) -> Vec<De
 
 // f(w) in R1CS context. For the moment we use R1CS, in the future we will abstract this with a
 // trait
-fn eval_f<F: PrimeField>(r1cs: &R1CS<F>, w: &[F]) -> Result<Vec<F>, Error> {
-    let Az = mat_vec_mul(&r1cs.A, w)?;
-    let Bz = mat_vec_mul(&r1cs.B, w)?;
-    let Cz = mat_vec_mul(&r1cs.C, w)?;
+fn eval_f<F: PrimeField>(r1cs: &R1CS<F>, z: &[F]) -> Result<Vec<F>, Error> {
+    let Az = mat_vec_mul(&r1cs.A, z)?;
+    let Bz = mat_vec_mul(&r1cs.B, z)?;
+    let Cz = mat_vec_mul(&r1cs.C, z)?;
     let AzBz = hadamard(&Az, &Bz)?;
     vec_sub(&AzBz, &Cz)
 }
@@ -379,7 +412,7 @@ mod tests {
     use ark_pallas::{Fr, Projective};
     use ark_std::UniformRand;
 
-    use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z};
+    use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z_split, get_test_z};
     use crate::commitment::{pedersen::Pedersen, CommitmentScheme};
     use crate::transcript::poseidon::poseidon_canonical_config;
 
@@ -388,20 +421,22 @@ mod tests {
         instance: &CommittedInstance<C>,
         w: &Witness<C::ScalarField>,
     ) -> Result<(), Error> {
-        if instance.betas.len() != log2(w.w.len()) as usize {
+        let z = [vec![instance.u], instance.x.clone(), w.w.clone()].concat();
+
+        if instance.betas.len() != log2(z.len()) as usize {
             return Err(Error::NotSameLength(
                 "instance.betas.len()".to_string(),
                 instance.betas.len(),
-                "log2(w.w.len())".to_string(),
-                log2(w.w.len()) as usize,
+                "log2(z.len())".to_string(),
+                log2(z.len()) as usize,
             ));
         }
 
-        let f_w = eval_f(r1cs, &w.w)?; // f(w)
+        let f_z = eval_f(r1cs, &z)?; // f(z)
 
         let mut r = C::ScalarField::zero();
-        for (i, f_w_i) in f_w.iter().enumerate() {
-            r += pow_i(i, &instance.betas) * f_w_i;
+        for (i, f_z_i) in f_z.iter().enumerate() {
+            r += pow_i(i, &instance.betas) * f_z_i;
         }
         if instance.e == r {
             return Ok(());
@@ -450,21 +485,16 @@ mod tests {
         let mut rng = ark_std::test_rng();
         let (pedersen_params, _) = Pedersen::<Projective>::setup(&mut rng, 100).unwrap(); // 100 is wip, will get it from actual vec
 
-        let z = get_test_z::<Fr>(3);
-        let mut zs: Vec<Vec<Fr>> = Vec::new();
-        for i in 0..k {
-            let z_i = get_test_z::<Fr>(i + 4);
-            zs.push(z_i);
-        }
+        let (u, x, w) = get_test_z_split::<Fr>(3);
 
-        let n = z.len();
+        let n = 1 + x.len() + w.len();
         let t = log2(n) as usize;
 
         let beta = Fr::rand(&mut rng);
         let betas = exponential_powers(beta, t);
 
         let witness = Witness::<Fr> {
-            w: z.clone(),
+            w,
             r_w: Fr::rand(&mut rng),
         };
         let phi = Pedersen::<Projective, true>::commit(&pedersen_params, &witness.w, &witness.r_w)
@@ -473,14 +503,17 @@ mod tests {
             phi,
             betas: betas.clone(),
             e: Fr::zero(),
+            u,
+            x,
         };
         // same for the other instances
         let mut witnesses: Vec<Witness<Fr>> = Vec::new();
         let mut instances: Vec<CommittedInstance<Projective>> = Vec::new();
         #[allow(clippy::needless_range_loop)]
         for i in 0..k {
+            let (u_i, x_i, w_i) = get_test_z_split::<Fr>(i + 4);
             let witness_i = Witness::<Fr> {
-                w: zs[i].clone(),
+                w: w_i,
                 r_w: Fr::rand(&mut rng),
             };
             let phi_i = Pedersen::<Projective, true>::commit(
@@ -493,6 +526,8 @@ mod tests {
                 phi: phi_i,
                 betas: vec![],
                 e: Fr::zero(),
+                u: u_i,
+                x: x_i,
             };
             witnesses.push(witness_i);
             instances.push(instance_i);
@@ -584,9 +619,8 @@ mod tests {
             .unwrap();
 
             // check that prover & verifier folded instances are the same values
-            assert_eq!(folded_instance.phi, folded_instance_v.phi);
-            assert_eq!(folded_instance.betas, folded_instance_v.betas);
-            assert_eq!(folded_instance.e, folded_instance_v.e);
+            assert_eq!(folded_instance, folded_instance_v);
+
             assert!(!folded_instance.e.is_zero());
 
             // check that the folded instance satisfies the relation
