@@ -1,7 +1,10 @@
 /// Implements the scheme described in [ProtoGalaxy](https://eprint.iacr.org/2023/1106.pdf)
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
+use ark_r1cs_std::fields::fp::FpVar;
 use thiserror::Error;
+
+use super::circuits::nonnative::affine::NonNativeAffineVar;
 
 pub mod folding;
 pub mod traits;
@@ -12,6 +15,13 @@ pub struct CommittedInstance<C: CurveGroup> {
     phi: C,
     betas: Vec<C::ScalarField>,
     e: C::ScalarField,
+}
+
+#[derive(Clone, Debug)]
+pub struct CommittedInstanceVar<C: CurveGroup> {
+    phi: NonNativeAffineVar<C>,
+    betas: Vec<FpVar<C::ScalarField>>,
+    e: FpVar<C::ScalarField>,
 }
 
 #[derive(Clone, Debug)]

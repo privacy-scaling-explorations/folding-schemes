@@ -1,7 +1,10 @@
 use ark_crypto_primitives::sponge::Absorb;
-use ark_ec::{CurveGroup, Group};
+use ark_ec::CurveGroup;
+use ark_ff::PrimeField;
 
-use super::CommittedInstance;
+use super::{CommittedInstance, CommittedInstanceVar};
+use crate::transcript::poseidon::PoseidonTranscriptVar;
+use crate::transcript::TranscriptVar;
 use crate::transcript::{poseidon::PoseidonTranscript, Transcript};
 use crate::Error;
 
@@ -17,7 +20,18 @@ pub trait ProtoGalaxyTranscript<C: CurveGroup>: Transcript<C> {
 }
 
 // Implements ProtoGalaxyTranscript for PoseidonTranscript
-impl<C: CurveGroup> ProtoGalaxyTranscript<C> for PoseidonTranscript<C> where
-    <C as Group>::ScalarField: Absorb
-{
+impl<C: CurveGroup> ProtoGalaxyTranscript<C> for PoseidonTranscript<C> where C::ScalarField: Absorb {}
+
+pub trait ProtoGalaxyTranscriptVar<F: PrimeField>: TranscriptVar<F> {
+    fn absorb_committed_instance<C: CurveGroup<ScalarField = F>>(
+        &mut self,
+        ci: &CommittedInstanceVar<C>,
+    ) -> Result<(), Error> {
+        self.absorb_point(&ci.phi)?;
+        self.absorb_vec(&ci.betas)?;
+        self.absorb(&ci.e)?;
+        Ok(())
+    }
 }
+
+impl<F: PrimeField> ProtoGalaxyTranscriptVar<F> for PoseidonTranscriptVar<F> {}
