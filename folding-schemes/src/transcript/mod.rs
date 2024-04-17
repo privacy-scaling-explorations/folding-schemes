@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::{folding::circuits::nonnative::affine::NonNativeAffineVar, Error};
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{boolean::Boolean, fields::fp::FpVar};
@@ -24,8 +24,12 @@ pub trait TranscriptVar<F: PrimeField> {
     type TranscriptVarConfig: Debug;
 
     fn new(cs: ConstraintSystemRef<F>, poseidon_config: &Self::TranscriptVarConfig) -> Self;
-    fn absorb(&mut self, v: FpVar<F>) -> Result<(), SynthesisError>;
+    fn absorb(&mut self, v: &FpVar<F>) -> Result<(), SynthesisError>;
     fn absorb_vec(&mut self, v: &[FpVar<F>]) -> Result<(), SynthesisError>;
+    fn absorb_point<C: CurveGroup<ScalarField = F>>(
+        &mut self,
+        v: &NonNativeAffineVar<C>,
+    ) -> Result<(), SynthesisError>;
     fn get_challenge(&mut self) -> Result<FpVar<F>, SynthesisError>;
     /// returns the bit representation of the challenge, we use its output in-circuit for the
     /// `GC.scalar_mul_le` method.

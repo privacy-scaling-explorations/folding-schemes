@@ -254,13 +254,13 @@ where
         let gamma_scalar_raw = C::ScalarField::from_le_bytes_mod_order(b"gamma");
         let gamma_scalar: FpVar<CF1<C>> =
             FpVar::<CF1<C>>::new_constant(cs.clone(), gamma_scalar_raw)?;
-        transcript.absorb(gamma_scalar)?;
+        transcript.absorb(&gamma_scalar)?;
         let gamma: FpVar<CF1<C>> = transcript.get_challenge()?;
 
         let beta_scalar_raw = C::ScalarField::from_le_bytes_mod_order(b"beta");
         let beta_scalar: FpVar<CF1<C>> =
             FpVar::<CF1<C>>::new_constant(cs.clone(), beta_scalar_raw)?;
-        transcript.absorb(beta_scalar)?;
+        transcript.absorb(&beta_scalar)?;
         let beta: Vec<FpVar<CF1<C>>> = transcript.get_challenges(ccs.s)?;
 
         let vp_aux_info_raw = VPAuxInfo::<C::ScalarField> {
@@ -311,7 +311,7 @@ where
         // get the folding challenge
         let rho_scalar_raw = C::ScalarField::from_le_bytes_mod_order(b"rho");
         let rho_scalar: FpVar<CF1<C>> = FpVar::<CF1<C>>::new_constant(cs.clone(), rho_scalar_raw)?;
-        transcript.absorb(rho_scalar)?;
+        transcript.absorb(&rho_scalar)?;
         let rho_bits: Vec<Boolean<CF1<C>>> = transcript.get_challenge_nbits(N_BITS_RO)?;
         let rho = Boolean::le_bits_to_fp_var(&rho_bits)?;
 

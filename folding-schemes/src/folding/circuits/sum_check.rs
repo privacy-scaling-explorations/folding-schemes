@@ -163,8 +163,8 @@ impl<C: CurveGroup> SumCheckVerifierGadget<C> {
     ) -> Result<(Vec<FpVar<C::ScalarField>>, Vec<FpVar<C::ScalarField>>), SynthesisError> {
         let mut e_vars = vec![iop_proof_var.claim.clone()];
         let mut r_vars: Vec<FpVar<C::ScalarField>> = Vec::new();
-        transcript_var.absorb(poly_aux_info_var.num_variables.clone())?;
-        transcript_var.absorb(poly_aux_info_var.max_degree.clone())?;
+        transcript_var.absorb(&poly_aux_info_var.num_variables)?;
+        transcript_var.absorb(&poly_aux_info_var.max_degree)?;
 
         for poly_var in iop_proof_var.proofs.iter() {
             let res = poly_var.eval_at_one() + poly_var.eval_at_zero();
