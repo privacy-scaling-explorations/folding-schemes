@@ -17,6 +17,13 @@ pub trait ProtoGalaxyTranscript<C: CurveGroup>: Transcript<C> {
         self.absorb(&ci.e);
         Ok(())
     }
+
+    fn absorb_committed_instances(&mut self, cis: &[CommittedInstance<C>]) -> Result<(), Error> {
+        for ci in cis {
+            self.absorb_committed_instance(ci)?;
+        }
+        Ok(())
+    }
 }
 
 // Implements ProtoGalaxyTranscript for PoseidonTranscript
@@ -30,6 +37,16 @@ pub trait ProtoGalaxyTranscriptVar<F: PrimeField>: TranscriptVar<F> {
         self.absorb_point(&ci.phi)?;
         self.absorb_vec(&ci.betas)?;
         self.absorb(&ci.e)?;
+        Ok(())
+    }
+
+    fn absorb_committed_instances<C: CurveGroup<ScalarField = F>>(
+        &mut self,
+        cis: &[CommittedInstanceVar<C>],
+    ) -> Result<(), Error> {
+        for ci in cis {
+            self.absorb_committed_instance(ci)?;
+        }
         Ok(())
     }
 }

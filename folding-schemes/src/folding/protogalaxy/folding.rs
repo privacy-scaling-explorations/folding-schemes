@@ -82,9 +82,7 @@ where
 
         // absorb the committed instances
         transcript.absorb_committed_instance(instance)?;
-        for ci in vec_instances.iter() {
-            transcript.absorb_committed_instance(ci)?;
-        }
+        transcript.absorb_committed_instances(&vec_instances)?;
 
         let delta = transcript.get_challenge();
         let deltas = exponential_powers(delta, t);
@@ -238,9 +236,7 @@ where
 
         // absorb the committed instances
         transcript.absorb_committed_instance(instance)?;
-        for ci in vec_instances.iter() {
-            transcript.absorb_committed_instance(ci)?;
-        }
+        transcript.absorb_committed_instances(&vec_instances)?;
 
         let delta = transcript.get_challenge();
         let deltas = exponential_powers(delta, t);
