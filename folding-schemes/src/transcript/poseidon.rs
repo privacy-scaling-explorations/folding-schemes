@@ -52,7 +52,11 @@ where
         c[0]
     }
     fn get_challenge_nbits(&mut self, nbits: usize) -> Vec<bool> {
-        self.sponge.squeeze_bits(nbits)
+        let bits = self.sponge.squeeze_bits(nbits);
+        self.sponge.absorb(&C::ScalarField::from(
+            <C::ScalarField as PrimeField>::BigInt::from_bits_le(&bits),
+        ));
+        bits
     }
     fn get_challenges(&mut self, n: usize) -> Vec<C::ScalarField> {
         let c = self.sponge.squeeze_field_elements(n);
@@ -93,7 +97,9 @@ impl<F: PrimeField> TranscriptVar<F> for PoseidonTranscriptVar<F> {
     /// returns the bit representation of the challenge, we use its output in-circuit for the
     /// `GC.scalar_mul_le` method.
     fn get_challenge_nbits(&mut self, nbits: usize) -> Result<Vec<Boolean<F>>, SynthesisError> {
-        self.sponge.squeeze_bits(nbits)
+        let bits = self.sponge.squeeze_bits(nbits)?;
+        self.sponge.absorb(&Boolean::le_bits_to_fp_var(&bits)?)?;
+        Ok(bits)
     }
     fn get_challenges(&mut self, n: usize) -> Result<Vec<FpVar<F>>, SynthesisError> {
         let c = self.sponge.squeeze_field_elements(n)?;
