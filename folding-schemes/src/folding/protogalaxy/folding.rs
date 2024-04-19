@@ -495,7 +495,7 @@ mod tests {
             .unwrap();
             let instance_i = CommittedInstance::<Projective> {
                 phi: phi_i,
-                betas: betas.clone(),
+                betas: vec![],
                 e: Fr::zero(),
             };
             witnesses.push(witness_i);
