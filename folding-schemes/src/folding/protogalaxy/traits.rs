@@ -1,6 +1,7 @@
 use ark_crypto_primitives::sponge::Absorb;
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
+use ark_relations::r1cs::SynthesisError;
 
 use super::{CommittedInstance, CommittedInstanceVar};
 use crate::transcript::poseidon::PoseidonTranscriptVar;
@@ -33,7 +34,7 @@ pub trait ProtoGalaxyTranscriptVar<F: PrimeField>: TranscriptVar<F> {
     fn absorb_committed_instance<C: CurveGroup<ScalarField = F>>(
         &mut self,
         ci: &CommittedInstanceVar<C>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), SynthesisError> {
         self.absorb_point(&ci.phi)?;
         self.absorb_vec(&ci.betas)?;
         self.absorb(&ci.e)?;
@@ -43,7 +44,7 @@ pub trait ProtoGalaxyTranscriptVar<F: PrimeField>: TranscriptVar<F> {
     fn absorb_committed_instances<C: CurveGroup<ScalarField = F>>(
         &mut self,
         cis: &[CommittedInstanceVar<C>],
-    ) -> Result<(), Error> {
+    ) -> Result<(), SynthesisError> {
         for ci in cis {
             self.absorb_committed_instance(ci)?;
         }
