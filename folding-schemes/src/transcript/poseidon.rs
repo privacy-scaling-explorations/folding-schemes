@@ -3,10 +3,10 @@ use ark_crypto_primitives::sponge::{
     poseidon::{constraints::PoseidonSpongeVar, PoseidonConfig, PoseidonSponge},
     Absorb, CryptographicSponge,
 };
-use ark_ec::{CurveGroup, Group};
-use ark_ff::PrimeField;
+use ark_ec::CurveGroup;
+use ark_ff::{BigInteger, PrimeField};
 use ark_r1cs_std::{boolean::Boolean, fields::fp::FpVar, ToConstraintFieldGadget};
-use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
+use ark_relations::r1cs::SynthesisError;
 
 use crate::{
     folding::circuits::nonnative::affine::{
@@ -17,93 +17,52 @@ use crate::{
 
 use super::{Transcript, TranscriptVar};
 
-/// PoseidonTranscript implements the Transcript trait using the Poseidon hash
-pub struct PoseidonTranscript<C: CurveGroup>
-where
-    <C as Group>::ScalarField: Absorb,
-{
-    sponge: PoseidonSponge<C::ScalarField>,
-}
-
-impl<C: CurveGroup> Transcript<C> for PoseidonTranscript<C>
-where
-    <C as Group>::ScalarField: Absorb,
-{
-    type TranscriptConfig = PoseidonConfig<C::ScalarField>;
-
-    fn new(poseidon_config: &Self::TranscriptConfig) -> Self {
-        let sponge = PoseidonSponge::<C::ScalarField>::new(poseidon_config);
-        Self { sponge }
-    }
-    fn absorb(&mut self, v: &C::ScalarField) {
-        self.sponge.absorb(&v);
-    }
-    fn absorb_vec(&mut self, v: &[C::ScalarField]) {
-        self.sponge.absorb(&v);
-    }
-    fn absorb_point(&mut self, p: &C) -> Result<(), Error> {
+impl<F: PrimeField + Absorb> Transcript<F> for PoseidonSponge<F> {
+    fn absorb_point<C: CurveGroup<ScalarField = F>>(&mut self, p: &C) -> Result<(), Error> {
         let (x, y) = nonnative_affine_to_field_elements(*p)?;
-        self.sponge.absorb(&[x, y].concat());
+        self.absorb(&[x, y].concat());
         Ok(())
     }
-    fn get_challenge(&mut self) -> C::ScalarField {
-        let c = self.sponge.squeeze_field_elements(1);
-        self.sponge.absorb(&c[0]);
+    fn get_challenge(&mut self) -> F {
+        let c = self.squeeze_field_elements(1);
+        self.absorb(&c[0]);
         c[0]
     }
     fn get_challenge_nbits(&mut self, nbits: usize) -> Vec<bool> {
-        let bits = self.sponge.squeeze_bits(nbits);
-        self.sponge.absorb(&C::ScalarField::from(
-            <C::ScalarField as PrimeField>::BigInt::from_bits_le(&bits),
-        ));
+        let bits = self.squeeze_bits(nbits);
+        self.absorb(&F::from(F::BigInt::from_bits_le(&bits)));
         bits
     }
-    fn get_challenges(&mut self, n: usize) -> Vec<C::ScalarField> {
-        let c = self.sponge.squeeze_field_elements(n);
-        self.sponge.absorb(&c);
+    fn get_challenges(&mut self, n: usize) -> Vec<F> {
+        let c = self.squeeze_field_elements(n);
+        self.absorb(&c);
         c
     }
 }
 
-/// PoseidonTranscriptVar implements the gadget compatible with PoseidonTranscript
-pub struct PoseidonTranscriptVar<F: PrimeField> {
-    sponge: PoseidonSpongeVar<F>,
-}
-impl<F: PrimeField> TranscriptVar<F> for PoseidonTranscriptVar<F> {
-    type TranscriptVarConfig = PoseidonConfig<F>;
-
-    fn new(cs: ConstraintSystemRef<F>, poseidon_config: &Self::TranscriptVarConfig) -> Self {
-        let sponge = PoseidonSpongeVar::<F>::new(cs, poseidon_config);
-        Self { sponge }
-    }
-    fn absorb(&mut self, v: &FpVar<F>) -> Result<(), SynthesisError> {
-        self.sponge.absorb(v)
-    }
-    fn absorb_vec(&mut self, v: &[FpVar<F>]) -> Result<(), SynthesisError> {
-        self.sponge.absorb(&v)
-    }
+impl<F: PrimeField> TranscriptVar<F, PoseidonSponge<F>> for PoseidonSpongeVar<F> {
     fn absorb_point<C: CurveGroup<ScalarField = F>>(
         &mut self,
         v: &NonNativeAffineVar<C>,
     ) -> Result<(), SynthesisError> {
-        self.sponge.absorb(&v.to_constraint_field()?)
+        self.absorb(&v.to_constraint_field()?)
     }
     fn get_challenge(&mut self) -> Result<FpVar<F>, SynthesisError> {
-        let c = self.sponge.squeeze_field_elements(1)?;
-        self.sponge.absorb(&c[0])?;
+        let c = self.squeeze_field_elements(1)?;
+        self.absorb(&c[0])?;
         Ok(c[0].clone())
     }
 
     /// returns the bit representation of the challenge, we use its output in-circuit for the
     /// `GC.scalar_mul_le` method.
     fn get_challenge_nbits(&mut self, nbits: usize) -> Result<Vec<Boolean<F>>, SynthesisError> {
-        let bits = self.sponge.squeeze_bits(nbits)?;
-        self.sponge.absorb(&Boolean::le_bits_to_fp_var(&bits)?)?;
+        let bits = self.squeeze_bits(nbits)?;
+        self.absorb(&Boolean::le_bits_to_fp_var(&bits)?)?;
         Ok(bits)
     }
     fn get_challenges(&mut self, n: usize) -> Result<Vec<FpVar<F>>, SynthesisError> {
-        let c = self.sponge.squeeze_field_elements(n)?;
-        self.sponge.absorb(&c)?;
+        let c = self.squeeze_field_elements(n)?;
+        self.absorb(&c)?;
         Ok(c)
     }
 }
@@ -141,13 +100,13 @@ pub fn poseidon_canonical_config<F: PrimeField>() -> PoseidonConfig<F> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+
     use ark_bn254::{constraints::GVar, Fq, Fr, G1Projective as G1};
-    use ark_ff::{BigInteger, UniformRand};
-    use ark_grumpkin::Projective;
+    use ark_ec::Group;
+    use ark_ff::UniformRand;
     use ark_r1cs_std::{alloc::AllocVar, groups::CurveVar, R1CSVar};
     use ark_relations::r1cs::ConstraintSystem;
     use ark_std::test_rng;
-    use std::ops::Mul;
 
     // Test with value taken from https://github.com/iden3/circomlibjs/blob/43cc582b100fc3459cf78d903a6f538e5d7f38ee/test/poseidon.js#L32
     #[test]
@@ -177,7 +136,7 @@ pub mod tests {
     fn test_transcript_and_transcriptvar_absorb_point() {
         // use 'native' transcript
         let config = poseidon_canonical_config::<Fr>();
-        let mut tr = PoseidonTranscript::<G1>::new(&config);
+        let mut tr = PoseidonSponge::<Fr>::new(&config);
         let rng = &mut test_rng();
 
         let p = G1::rand(rng);
@@ -186,12 +145,10 @@ pub mod tests {
 
         // use 'gadget' transcript
         let cs = ConstraintSystem::<Fr>::new_ref();
-        let mut tr_var = PoseidonTranscriptVar::<Fr>::new(cs.clone(), &config);
-        let p_var = NonNativeAffineVar::<G1>::new_witness(
-            ConstraintSystem::<Fr>::new_ref(),
-            || Ok(p),
-        )
-        .unwrap();
+        let mut tr_var = PoseidonSpongeVar::<Fr>::new(cs.clone(), &config);
+        let p_var =
+            NonNativeAffineVar::<G1>::new_witness(ConstraintSystem::<Fr>::new_ref(), || Ok(p))
+                .unwrap();
         tr_var.absorb_point(&p_var).unwrap();
         let c_var = tr_var.get_challenge().unwrap();
 
@@ -203,13 +160,13 @@ pub mod tests {
     fn test_transcript_and_transcriptvar_get_challenge() {
         // use 'native' transcript
         let config = poseidon_canonical_config::<Fr>();
-        let mut tr = PoseidonTranscript::<G1>::new(&config);
+        let mut tr = PoseidonSponge::<Fr>::new(&config);
         tr.absorb(&Fr::from(42_u32));
         let c = tr.get_challenge();
 
         // use 'gadget' transcript
         let cs = ConstraintSystem::<Fr>::new_ref();
-        let mut tr_var = PoseidonTranscriptVar::<Fr>::new(cs.clone(), &config);
+        let mut tr_var = PoseidonSpongeVar::<Fr>::new(cs.clone(), &config);
         let v = FpVar::<Fr>::new_witness(cs.clone(), || Ok(Fr::from(42_u32))).unwrap();
         tr_var.absorb(&v).unwrap();
         let c_var = tr_var.get_challenge().unwrap();
@@ -224,7 +181,7 @@ pub mod tests {
 
         // use 'native' transcript
         let config = poseidon_canonical_config::<Fq>();
-        let mut tr = PoseidonTranscript::<Projective>::new(&config);
+        let mut tr = PoseidonSponge::<Fq>::new(&config);
         tr.absorb(&Fq::from(42_u32));
 
         // get challenge from native transcript
@@ -232,7 +189,7 @@ pub mod tests {
 
         // use 'gadget' transcript
         let cs = ConstraintSystem::<Fq>::new_ref();
-        let mut tr_var = PoseidonTranscriptVar::<Fq>::new(cs.clone(), &config);
+        let mut tr_var = PoseidonSpongeVar::<Fq>::new(cs.clone(), &config);
         let v = FpVar::<Fq>::new_witness(cs.clone(), || Ok(Fq::from(42_u32))).unwrap();
         tr_var.absorb(&v).unwrap();
 
@@ -247,7 +204,7 @@ pub mod tests {
 
         // native c*P
         let c_Fr = Fr::from_bigint(BigInteger::from_bits_le(&c_bits)).unwrap();
-        let cP_native = P.mul(c_Fr);
+        let cP_native = P * c_Fr;
 
         // native c*P using mul_bits_be (notice the .rev to convert the LE to BE)
         let cP_native_bits = P.mul_bits_be(c_bits.into_iter().rev());

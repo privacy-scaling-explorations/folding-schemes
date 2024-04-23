@@ -1,55 +1,39 @@
-use ark_crypto_primitives::sponge::Absorb;
+use ark_crypto_primitives::sponge::{constraints::AbsorbGadget, Absorb};
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
+use ark_r1cs_std::{fields::fp::FpVar, uint8::UInt8, ToConstraintFieldGadget};
 use ark_relations::r1cs::SynthesisError;
 
 use super::{CommittedInstance, CommittedInstanceVar};
-use crate::transcript::poseidon::PoseidonTranscriptVar;
-use crate::transcript::TranscriptVar;
-use crate::transcript::{poseidon::PoseidonTranscript, Transcript};
-use crate::Error;
+use crate::folding::circuits::nonnative::affine::nonnative_affine_to_field_elements;
 
-/// ProtoGalaxyTranscript extends [`Transcript`] with the method to absorb ProtoGalaxy's
-/// CommittedInstance.
-pub trait ProtoGalaxyTranscript<C: CurveGroup>: Transcript<C> {
-    fn absorb_committed_instance(&mut self, ci: &CommittedInstance<C>) -> Result<(), Error> {
-        self.absorb_point(&ci.phi)?;
-        self.absorb_vec(&ci.betas);
-        self.absorb(&ci.e);
-        Ok(())
+// Implements the trait for absorbing ProtoGalaxy's CommittedInstance.
+impl<C: CurveGroup<ScalarField: Absorb>> Absorb for CommittedInstance<C> {
+    fn to_sponge_bytes(&self, _dest: &mut Vec<u8>) {
+        unimplemented!()
     }
 
-    fn absorb_committed_instances(&mut self, cis: &[CommittedInstance<C>]) -> Result<(), Error> {
-        for ci in cis {
-            self.absorb_committed_instance(ci)?;
-        }
-        Ok(())
+    fn to_sponge_field_elements<F: PrimeField>(&self, dest: &mut Vec<F>) {
+        let (x, y) = nonnative_affine_to_field_elements(self.phi).unwrap();
+        x.to_sponge_field_elements(dest);
+        y.to_sponge_field_elements(dest);
+        self.betas.to_sponge_field_elements(dest);
+        self.e.to_sponge_field_elements(dest);
     }
 }
 
-// Implements ProtoGalaxyTranscript for PoseidonTranscript
-impl<C: CurveGroup> ProtoGalaxyTranscript<C> for PoseidonTranscript<C> where C::ScalarField: Absorb {}
-
-pub trait ProtoGalaxyTranscriptVar<F: PrimeField>: TranscriptVar<F> {
-    fn absorb_committed_instance<C: CurveGroup<ScalarField = F>>(
-        &mut self,
-        ci: &CommittedInstanceVar<C>,
-    ) -> Result<(), SynthesisError> {
-        self.absorb_point(&ci.phi)?;
-        self.absorb_vec(&ci.betas)?;
-        self.absorb(&ci.e)?;
-        Ok(())
+// Implements the trait for absorbing ProtoGalaxy's CommittedInstanceVar in-circuit.
+impl<C: CurveGroup> AbsorbGadget<C::ScalarField> for CommittedInstanceVar<C> {
+    fn to_sponge_bytes(&self) -> Result<Vec<UInt8<C::ScalarField>>, SynthesisError> {
+        unimplemented!()
     }
 
-    fn absorb_committed_instances<C: CurveGroup<ScalarField = F>>(
-        &mut self,
-        cis: &[CommittedInstanceVar<C>],
-    ) -> Result<(), SynthesisError> {
-        for ci in cis {
-            self.absorb_committed_instance(ci)?;
-        }
-        Ok(())
+    fn to_sponge_field_elements(&self) -> Result<Vec<FpVar<C::ScalarField>>, SynthesisError> {
+        Ok([
+            self.phi.to_constraint_field()?,
+            self.betas.to_sponge_field_elements()?,
+            self.e.to_sponge_field_elements()?,
+        ]
+        .concat())
     }
 }
-
-impl<F: PrimeField> ProtoGalaxyTranscriptVar<F> for PoseidonTranscriptVar<F> {}

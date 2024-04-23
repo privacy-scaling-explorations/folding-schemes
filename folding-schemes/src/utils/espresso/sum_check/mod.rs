@@ -13,7 +13,7 @@ use crate::{
     transcript::Transcript,
     utils::virtual_polynomial::{VPAuxInfo, VirtualPolynomial},
 };
-use ark_ec::CurveGroup;
+use ark_crypto_primitives::sponge::Absorb;
 use ark_ff::PrimeField;
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::{DenseMultilinearExtension, DenseUVPolynomial, Polynomial};
@@ -22,7 +22,6 @@ use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
 use crate::utils::sum_check::structs::IOPProverMessage;
 use crate::utils::sum_check::structs::IOPVerifierState;
-use ark_ff::Field;
 use espresso_subroutines::poly_iop::prelude::PolyIOPErrors;
 use structs::{IOPProof, IOPProverState};
 
@@ -31,7 +30,7 @@ pub mod structs;
 pub mod verifier;
 
 /// A generic sum-check trait over a curve group
-pub trait SumCheck<C: CurveGroup> {
+pub trait SumCheck<F: PrimeField> {
     type VirtualPolynomial;
     type VPAuxInfo;
     type MultilinearExtension;
@@ -40,27 +39,27 @@ pub trait SumCheck<C: CurveGroup> {
     type SumCheckSubClaim: Clone + Debug + Default + PartialEq;
 
     /// Extract sum from the proof
-    fn extract_sum(proof: &Self::SumCheckProof) -> C::ScalarField;
+    fn extract_sum(proof: &Self::SumCheckProof) -> F;
 
     /// Generate proof of the sum of polynomial over {0,1}^`num_vars`
     ///
     /// The polynomial is represented in the form of a VirtualPolynomial.
     fn prove(
         poly: &Self::VirtualPolynomial,
-        transcript: &mut impl Transcript<C>,
+        transcript: &mut impl Transcript<F>,
     ) -> Result<Self::SumCheckProof, PolyIOPErrors>;
 
     /// Verify the claimed sum using the proof
     fn verify(
-        sum: C::ScalarField,
+        sum: F,
         proof: &Self::SumCheckProof,
         aux_info: &Self::VPAuxInfo,
-        transcript: &mut impl Transcript<C>,
+        transcript: &mut impl Transcript<F>,
     ) -> Result<Self::SumCheckSubClaim, PolyIOPErrors>;
 }
 
 /// Trait for sum check protocol prover side APIs.
-pub trait SumCheckProver<C: CurveGroup>
+pub trait SumCheckProver<F: PrimeField>
 where
     Self: Sized,
 {
@@ -77,12 +76,12 @@ where
     /// Main algorithm used is from section 3.2 of [XZZPS19](https://eprint.iacr.org/2019/317.pdf#subsection.3.2).
     fn prove_round_and_update_state(
         &mut self,
-        challenge: &Option<C::ScalarField>,
+        challenge: &Option<F>,
     ) -> Result<Self::ProverMessage, PolyIOPErrors>;
 }
 
 /// Trait for sum check protocol verifier side APIs.
-pub trait SumCheckVerifier<C: CurveGroup> {
+pub trait SumCheckVerifier<F: PrimeField> {
     type VPAuxInfo;
     type ProverMessage;
     type Challenge;
@@ -100,7 +99,7 @@ pub trait SumCheckVerifier<C: CurveGroup> {
     fn verify_round_and_update_state(
         &mut self,
         prover_msg: &Self::ProverMessage,
-        transcript: &mut impl Transcript<C>,
+        transcript: &mut impl Transcript<F>,
     ) -> Result<Self::Challenge, PolyIOPErrors>;
 
     /// This function verifies the deferred checks in the interactive version of
@@ -113,7 +112,7 @@ pub trait SumCheckVerifier<C: CurveGroup> {
     /// Larger field size guarantees smaller soundness error.
     fn check_and_generate_subclaim(
         &self,
-        asserted_sum: &C::ScalarField,
+        asserted_sum: &F,
     ) -> Result<Self::SumCheckSubClaim, PolyIOPErrors>;
 }
 
@@ -129,42 +128,42 @@ pub struct SumCheckSubClaim<F: PrimeField> {
 }
 
 #[derive(Clone, Debug, Default, Copy, PartialEq, Eq)]
-pub struct IOPSumCheck<C: CurveGroup, T: Transcript<C>> {
+pub struct IOPSumCheck<F: PrimeField, T: Transcript<F>> {
     #[doc(hidden)]
-    phantom: PhantomData<C>,
+    phantom: PhantomData<F>,
     #[doc(hidden)]
     phantom2: PhantomData<T>,
 }
 
-impl<C: CurveGroup, T: Transcript<C>> SumCheck<C> for IOPSumCheck<C, T> {
-    type SumCheckProof = IOPProof<C::ScalarField>;
-    type VirtualPolynomial = VirtualPolynomial<C::ScalarField>;
-    type VPAuxInfo = VPAuxInfo<C::ScalarField>;
-    type MultilinearExtension = Arc<DenseMultilinearExtension<C::ScalarField>>;
-    type SumCheckSubClaim = SumCheckSubClaim<C::ScalarField>;
+impl<F: PrimeField + Absorb, T: Transcript<F>> SumCheck<F> for IOPSumCheck<F, T> {
+    type SumCheckProof = IOPProof<F>;
+    type VirtualPolynomial = VirtualPolynomial<F>;
+    type VPAuxInfo = VPAuxInfo<F>;
+    type MultilinearExtension = Arc<DenseMultilinearExtension<F>>;
+    type SumCheckSubClaim = SumCheckSubClaim<F>;
 
-    fn extract_sum(proof: &Self::SumCheckProof) -> C::ScalarField {
+    fn extract_sum(proof: &Self::SumCheckProof) -> F {
         let start = start_timer!(|| "extract sum");
         let poly = DensePolynomial::from_coefficients_vec(proof.proofs[0].coeffs.clone());
-        let res = poly.evaluate(&C::ScalarField::ONE) + poly.evaluate(&C::ScalarField::ZERO);
+        let res = poly.evaluate(&F::ONE) + poly.evaluate(&F::ZERO);
         end_timer!(start);
         res
     }
 
     fn prove(
-        poly: &VirtualPolynomial<C::ScalarField>,
-        transcript: &mut impl Transcript<C>,
-    ) -> Result<IOPProof<C::ScalarField>, PolyIOPErrors> {
-        transcript.absorb(&C::ScalarField::from(poly.aux_info.num_variables as u64));
-        transcript.absorb(&C::ScalarField::from(poly.aux_info.max_degree as u64));
-        let mut prover_state: IOPProverState<C> = IOPProverState::prover_init(poly)?;
-        let mut challenge: Option<C::ScalarField> = None;
-        let mut prover_msgs: Vec<IOPProverMessage<C::ScalarField>> =
+        poly: &VirtualPolynomial<F>,
+        transcript: &mut impl Transcript<F>,
+    ) -> Result<IOPProof<F>, PolyIOPErrors> {
+        transcript.absorb(&F::from(poly.aux_info.num_variables as u64));
+        transcript.absorb(&F::from(poly.aux_info.max_degree as u64));
+        let mut prover_state: IOPProverState<F> = IOPProverState::prover_init(poly)?;
+        let mut challenge: Option<F> = None;
+        let mut prover_msgs: Vec<IOPProverMessage<F>> =
             Vec::with_capacity(poly.aux_info.num_variables);
         for _ in 0..poly.aux_info.num_variables {
-            let prover_msg: IOPProverMessage<C::ScalarField> =
+            let prover_msg: IOPProverMessage<F> =
                 IOPProverState::prove_round_and_update_state(&mut prover_state, &challenge)?;
-            transcript.absorb_vec(&prover_msg.coeffs);
+            transcript.absorb(&prover_msg.coeffs);
             prover_msgs.push(prover_msg);
             challenge = Some(transcript.get_challenge());
         }
@@ -178,17 +177,17 @@ impl<C: CurveGroup, T: Transcript<C>> SumCheck<C> for IOPSumCheck<C, T> {
     }
 
     fn verify(
-        claimed_sum: C::ScalarField,
-        proof: &IOPProof<C::ScalarField>,
-        aux_info: &VPAuxInfo<C::ScalarField>,
-        transcript: &mut impl Transcript<C>,
-    ) -> Result<SumCheckSubClaim<C::ScalarField>, PolyIOPErrors> {
-        transcript.absorb(&C::ScalarField::from(aux_info.num_variables as u64));
-        transcript.absorb(&C::ScalarField::from(aux_info.max_degree as u64));
+        claimed_sum: F,
+        proof: &IOPProof<F>,
+        aux_info: &VPAuxInfo<F>,
+        transcript: &mut impl Transcript<F>,
+    ) -> Result<SumCheckSubClaim<F>, PolyIOPErrors> {
+        transcript.absorb(&F::from(aux_info.num_variables as u64));
+        transcript.absorb(&F::from(aux_info.max_degree as u64));
         let mut verifier_state = IOPVerifierState::verifier_init(aux_info);
         for i in 0..aux_info.num_variables {
             let prover_msg = proof.proofs.get(i).expect("proof is incomplete");
-            transcript.absorb_vec(&prover_msg.coeffs);
+            transcript.absorb(&prover_msg.coeffs);
             IOPVerifierState::verify_round_and_update_state(
                 &mut verifier_state,
                 prover_msg,
@@ -204,16 +203,15 @@ impl<C: CurveGroup, T: Transcript<C>> SumCheck<C> for IOPSumCheck<C, T> {
 pub mod tests {
     use std::sync::Arc;
 
+    use ark_crypto_primitives::sponge::poseidon::PoseidonSponge;
+    use ark_crypto_primitives::sponge::CryptographicSponge;
     use ark_ff::Field;
     use ark_pallas::Fr;
-    use ark_pallas::Projective;
     use ark_poly::DenseMultilinearExtension;
     use ark_poly::MultilinearExtension;
     use ark_std::test_rng;
 
     use crate::transcript::poseidon::poseidon_canonical_config;
-    use crate::transcript::poseidon::PoseidonTranscript;
-    use crate::transcript::Transcript;
     use crate::utils::sum_check::SumCheck;
     use crate::utils::virtual_polynomial::VirtualPolynomial;
 
@@ -227,20 +225,19 @@ pub mod tests {
         let poseidon_config = poseidon_canonical_config::<Fr>();
 
         // sum-check prove
-        let mut poseidon_transcript_prove: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
-        let sum_check = IOPSumCheck::<Projective, PoseidonTranscript<Projective>>::prove(
+        let mut poseidon_transcript_prove: PoseidonSponge<Fr> =
+            PoseidonSponge::<Fr>::new(&poseidon_config);
+        let sum_check = IOPSumCheck::<Fr, PoseidonSponge<Fr>>::prove(
             &virtual_poly,
             &mut poseidon_transcript_prove,
         )
         .unwrap();
 
         // sum-check verify
-        let claimed_sum =
-            IOPSumCheck::<Projective, PoseidonTranscript<Projective>>::extract_sum(&sum_check);
-        let mut poseidon_transcript_verify: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
-        let res_verify = IOPSumCheck::<Projective, PoseidonTranscript<Projective>>::verify(
+        let claimed_sum = IOPSumCheck::<Fr, PoseidonSponge<Fr>>::extract_sum(&sum_check);
+        let mut poseidon_transcript_verify: PoseidonSponge<Fr> =
+            PoseidonSponge::<Fr>::new(&poseidon_config);
+        let res_verify = IOPSumCheck::<Fr, PoseidonSponge<Fr>>::verify(
             claimed_sum,
             &sum_check,
             &virtual_poly.aux_info,

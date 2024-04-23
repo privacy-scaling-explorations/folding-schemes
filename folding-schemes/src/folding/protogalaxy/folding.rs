@@ -6,12 +6,10 @@ use ark_poly::{
     univariate::{DensePolynomial, SparsePolynomial},
     DenseUVPolynomial, EvaluationDomain, Evaluations, GeneralEvaluationDomain, Polynomial,
 };
-use ark_std::log2;
-use ark_std::{cfg_into_iter, Zero};
+use ark_std::{cfg_into_iter, log2, Zero};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::marker::PhantomData;
 
-use super::traits::ProtoGalaxyTranscript;
 use super::utils::{all_powers, betas_star, exponential_powers};
 use super::ProtoGalaxyError;
 use super::{CommittedInstance, Witness};
@@ -36,7 +34,7 @@ where
     #![allow(clippy::type_complexity)]
     /// implements the non-interactive Prover from the folding scheme described in section 4
     pub fn prove(
-        transcript: &mut (impl Transcript<C> + ProtoGalaxyTranscript<C>),
+        transcript: &mut impl Transcript<C::ScalarField>,
         r1cs: &R1CS<C::ScalarField>,
         // running instance
         instance: &CommittedInstance<C>,
@@ -81,8 +79,8 @@ where
         }
 
         // absorb the committed instances
-        transcript.absorb_committed_instance(instance)?;
-        transcript.absorb_committed_instances(&vec_instances)?;
+        transcript.absorb(instance);
+        transcript.absorb(&vec_instances);
 
         let delta = transcript.get_challenge();
         let deltas = exponential_powers(delta, t);
@@ -93,7 +91,7 @@ where
         let F_X: SparsePolynomial<C::ScalarField> =
             calc_f_from_btree(&f_w, &instance.betas, &deltas).expect("Error calculating F[x]");
         let F_X_dense = DensePolynomial::from(F_X.clone());
-        transcript.absorb_vec(&F_X_dense.coeffs);
+        transcript.absorb(&F_X_dense.coeffs);
 
         let alpha = transcript.get_challenge();
 
@@ -185,7 +183,7 @@ where
             return Err(Error::ProtoGalaxy(ProtoGalaxyError::RemainderNotZero));
         }
 
-        transcript.absorb_vec(&K_X.coeffs);
+        transcript.absorb(&K_X.coeffs);
 
         let gamma = transcript.get_challenge();
 
@@ -221,7 +219,7 @@ where
 
     /// implements the non-interactive Verifier from the folding scheme described in section 4
     pub fn verify(
-        transcript: &mut (impl Transcript<C> + ProtoGalaxyTranscript<C>),
+        transcript: &mut impl Transcript<C::ScalarField>,
         r1cs: &R1CS<C::ScalarField>,
         // running instance
         instance: &CommittedInstance<C>,
@@ -235,13 +233,13 @@ where
         let n = r1cs.A.n_cols;
 
         // absorb the committed instances
-        transcript.absorb_committed_instance(instance)?;
-        transcript.absorb_committed_instances(&vec_instances)?;
+        transcript.absorb(instance);
+        transcript.absorb(&vec_instances);
 
         let delta = transcript.get_challenge();
         let deltas = exponential_powers(delta, t);
 
-        transcript.absorb_vec(&F_coeffs);
+        transcript.absorb(&F_coeffs);
 
         let alpha = transcript.get_challenge();
         let alphas = all_powers(alpha, n);
@@ -262,7 +260,7 @@ where
         let K_X: DensePolynomial<C::ScalarField> =
             DensePolynomial::<C::ScalarField>::from_coefficients_vec(K_coeffs);
 
-        transcript.absorb_vec(&K_X.coeffs);
+        transcript.absorb(&K_X.coeffs);
 
         let gamma = transcript.get_challenge();
 
@@ -376,12 +374,14 @@ fn eval_f<F: PrimeField>(r1cs: &R1CS<F>, w: &[F]) -> Result<Vec<F>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ark_crypto_primitives::sponge::poseidon::PoseidonSponge;
+    use ark_crypto_primitives::sponge::CryptographicSponge;
     use ark_pallas::{Fr, Projective};
     use ark_std::UniformRand;
 
     use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z};
     use crate::commitment::{pedersen::Pedersen, CommitmentScheme};
-    use crate::transcript::poseidon::{poseidon_canonical_config, PoseidonTranscript};
+    use crate::transcript::poseidon::poseidon_canonical_config;
 
     pub(crate) fn check_instance<C: CurveGroup>(
         r1cs: &R1CS<C::ScalarField>,
@@ -509,8 +509,8 @@ mod tests {
 
         // init Prover & Verifier's transcript
         let poseidon_config = poseidon_canonical_config::<Fr>();
-        let mut transcript_p = PoseidonTranscript::<Projective>::new(&poseidon_config);
-        let mut transcript_v = PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_p = PoseidonSponge::<Fr>::new(&poseidon_config);
+        let mut transcript_v = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         let (folded_instance, folded_witness, F_coeffs, K_coeffs) = Folding::<Projective>::prove(
             &mut transcript_p,
@@ -549,8 +549,8 @@ mod tests {
 
         // init Prover & Verifier's transcript
         let poseidon_config = poseidon_canonical_config::<Fr>();
-        let mut transcript_p = PoseidonTranscript::<Projective>::new(&poseidon_config);
-        let mut transcript_v = PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_p = PoseidonSponge::<Fr>::new(&poseidon_config);
+        let mut transcript_v = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         let (mut running_witness, mut running_instance, _, _) = prepare_inputs(0);
 

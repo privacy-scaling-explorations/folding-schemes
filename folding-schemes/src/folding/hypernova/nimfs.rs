@@ -56,12 +56,12 @@ pub struct SigmasThetas<F: PrimeField>(pub Vec<Vec<F>>, pub Vec<Vec<F>>);
 #[derive(Debug)]
 /// Implements the Non-Interactive Multi Folding Scheme described in section 5 of
 /// [HyperNova](https://eprint.iacr.org/2023/573.pdf)
-pub struct NIMFS<C: CurveGroup, T: Transcript<C>> {
+pub struct NIMFS<C: CurveGroup, T: Transcript<C::ScalarField>> {
     pub _c: PhantomData<C>,
     pub _t: PhantomData<T>,
 }
 
-impl<C: CurveGroup, T: Transcript<C>> NIMFS<C, T>
+impl<C: CurveGroup, T: Transcript<C::ScalarField>> NIMFS<C, T>
 where
     <C as Group>::ScalarField: Absorb,
     C::BaseField: PrimeField,
@@ -176,7 +176,7 @@ where
     /// contains the sumcheck proof and the helper sumcheck claim sigmas and thetas.
     #[allow(clippy::type_complexity)]
     pub fn prove(
-        transcript: &mut impl Transcript<C>,
+        transcript: &mut impl Transcript<C::ScalarField>,
         ccs: &CCS<C::ScalarField>,
         running_instances: &[LCCCS<C>],
         new_instances: &[CCCS<C>],
@@ -195,12 +195,12 @@ where
                 U_i.v.clone(),
             ]
             .concat();
-            transcript.absorb_vec(&v);
+            transcript.absorb(&v);
         }
         for u_i in new_instances {
             let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(u_i.C)?;
             let v = [C_x, C_y, u_i.x.clone()].concat();
-            transcript.absorb_vec(&v);
+            transcript.absorb(&v);
         }
 
         if running_instances.is_empty() {
@@ -245,7 +245,7 @@ where
         let g = compute_g(ccs, running_instances, &z_lcccs, &z_cccs, gamma, &beta)?;
 
         // Step 3: Run the sumcheck prover
-        let sumcheck_proof = IOPSumCheck::<C, T>::prove(&g, transcript)
+        let sumcheck_proof = IOPSumCheck::<C::ScalarField, T>::prove(&g, transcript)
             .map_err(|err| Error::SumCheckProveError(err.to_string()))?;
 
         // Step 2: dig into the sumcheck and extract r_x_prime
@@ -288,7 +288,7 @@ where
     /// into a single LCCCS instance.
     /// Returns the folded LCCCS instance.
     pub fn verify(
-        transcript: &mut impl Transcript<C>,
+        transcript: &mut impl Transcript<C::ScalarField>,
         ccs: &CCS<C::ScalarField>,
         running_instances: &[LCCCS<C>],
         new_instances: &[CCCS<C>],
@@ -306,12 +306,12 @@ where
                 U_i.v.clone(),
             ]
             .concat();
-            transcript.absorb_vec(&v);
+            transcript.absorb(&v);
         }
         for u_i in new_instances {
             let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(u_i.C)?;
             let v = [C_x, C_y, u_i.x.clone()].concat();
-            transcript.absorb_vec(&v);
+            transcript.absorb(&v);
         }
 
         if running_instances.is_empty() {
@@ -347,9 +347,13 @@ where
         }
 
         // Verify the interactive part of the sumcheck
-        let sumcheck_subclaim =
-            IOPSumCheck::<C, T>::verify(sum_v_j_gamma, &proof.sc_proof, &vp_aux_info, transcript)
-                .map_err(|err| Error::SumCheckVerifyError(err.to_string()))?;
+        let sumcheck_subclaim = IOPSumCheck::<C::ScalarField, T>::verify(
+            sum_v_j_gamma,
+            &proof.sc_proof,
+            &vp_aux_info,
+            transcript,
+        )
+        .map_err(|err| Error::SumCheckVerifyError(err.to_string()))?;
 
         // Step 2: Dig into the sumcheck claim and extract the randomness used
         let r_x_prime = sumcheck_subclaim.point.clone();
@@ -408,7 +412,8 @@ pub mod tests {
     use super::*;
     use crate::ccs::tests::{get_test_ccs, get_test_z};
     use crate::transcript::poseidon::poseidon_canonical_config;
-    use crate::transcript::poseidon::PoseidonTranscript;
+    use ark_crypto_primitives::sponge::poseidon::PoseidonSponge;
+    use ark_crypto_primitives::sponge::CryptographicSponge;
     use ark_std::test_rng;
     use ark_std::UniformRand;
 
@@ -441,7 +446,7 @@ pub mod tests {
         let mut rng = test_rng();
         let rho = Fr::rand(&mut rng);
 
-        let folded = NIMFS::<Projective, PoseidonTranscript<Projective>>::fold(
+        let folded = NIMFS::<Projective, PoseidonSponge<Fr>>::fold(
             &[lcccs],
             &[cccs],
             &sigmas_thetas,
@@ -449,8 +454,7 @@ pub mod tests {
             rho,
         );
 
-        let w_folded =
-            NIMFS::<Projective, PoseidonTranscript<Projective>>::fold_witness(&[w1], &[w2], rho);
+        let w_folded = NIMFS::<Projective, PoseidonSponge<Fr>>::fold_witness(&[w1], &[w2], rho);
 
         // check lcccs relation
         folded
@@ -480,13 +484,12 @@ pub mod tests {
 
         // Prover's transcript
         let poseidon_config = poseidon_canonical_config::<Fr>();
-        let mut transcript_p: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_p: PoseidonSponge<Fr> = PoseidonSponge::<Fr>::new(&poseidon_config);
         transcript_p.absorb(&Fr::from_le_bytes_mod_order(b"init init"));
 
         // Run the prover side of the multifolding
         let (proof, folded_lcccs, folded_witness, _) =
-            NIMFS::<Projective, PoseidonTranscript<Projective>>::prove(
+            NIMFS::<Projective, PoseidonSponge<Fr>>::prove(
                 &mut transcript_p,
                 &ccs,
                 &[running_instance.clone()],
@@ -497,12 +500,11 @@ pub mod tests {
             .unwrap();
 
         // Verifier's transcript
-        let mut transcript_v: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_v: PoseidonSponge<Fr> = PoseidonSponge::<Fr>::new(&poseidon_config);
         transcript_v.absorb(&Fr::from_le_bytes_mod_order(b"init init"));
 
         // Run the verifier side of the multifolding
-        let folded_lcccs_v = NIMFS::<Projective, PoseidonTranscript<Projective>>::verify(
+        let folded_lcccs_v = NIMFS::<Projective, PoseidonSponge<Fr>>::verify(
             &mut transcript_v,
             &ccs,
             &[running_instance.clone()],
@@ -535,12 +537,10 @@ pub mod tests {
 
         let poseidon_config = poseidon_canonical_config::<Fr>();
 
-        let mut transcript_p: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_p: PoseidonSponge<Fr> = PoseidonSponge::<Fr>::new(&poseidon_config);
         transcript_p.absorb(&Fr::from_le_bytes_mod_order(b"init init"));
 
-        let mut transcript_v: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_v: PoseidonSponge<Fr> = PoseidonSponge::<Fr>::new(&poseidon_config);
         transcript_v.absorb(&Fr::from_le_bytes_mod_order(b"init init"));
 
         let n: usize = 10;
@@ -552,7 +552,7 @@ pub mod tests {
 
             // run the prover side of the multifolding
             let (proof, folded_lcccs, folded_witness, _) =
-                NIMFS::<Projective, PoseidonTranscript<Projective>>::prove(
+                NIMFS::<Projective, PoseidonSponge<Fr>>::prove(
                     &mut transcript_p,
                     &ccs,
                     &[running_instance.clone()],
@@ -563,7 +563,7 @@ pub mod tests {
                 .unwrap();
 
             // run the verifier side of the multifolding
-            let folded_lcccs_v = NIMFS::<Projective, PoseidonTranscript<Projective>>::verify(
+            let folded_lcccs_v = NIMFS::<Projective, PoseidonSponge<Fr>>::verify(
                 &mut transcript_v,
                 &ccs,
                 &[running_instance.clone()],
@@ -627,13 +627,12 @@ pub mod tests {
 
         // Prover's transcript
         let poseidon_config = poseidon_canonical_config::<Fr>();
-        let mut transcript_p: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_p: PoseidonSponge<Fr> = PoseidonSponge::<Fr>::new(&poseidon_config);
         transcript_p.absorb(&Fr::from_le_bytes_mod_order(b"init init"));
 
         // Run the prover side of the multifolding
         let (proof, folded_lcccs, folded_witness, _) =
-            NIMFS::<Projective, PoseidonTranscript<Projective>>::prove(
+            NIMFS::<Projective, PoseidonSponge<Fr>>::prove(
                 &mut transcript_p,
                 &ccs,
                 &lcccs_instances,
@@ -644,12 +643,11 @@ pub mod tests {
             .unwrap();
 
         // Verifier's transcript
-        let mut transcript_v: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_v: PoseidonSponge<Fr> = PoseidonSponge::<Fr>::new(&poseidon_config);
         transcript_v.absorb(&Fr::from_le_bytes_mod_order(b"init init"));
 
         // Run the verifier side of the multifolding
-        let folded_lcccs_v = NIMFS::<Projective, PoseidonTranscript<Projective>>::verify(
+        let folded_lcccs_v = NIMFS::<Projective, PoseidonSponge<Fr>>::verify(
             &mut transcript_v,
             &ccs,
             &lcccs_instances,
@@ -678,13 +676,11 @@ pub mod tests {
 
         let poseidon_config = poseidon_canonical_config::<Fr>();
         // Prover's transcript
-        let mut transcript_p: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_p: PoseidonSponge<Fr> = PoseidonSponge::<Fr>::new(&poseidon_config);
         transcript_p.absorb(&Fr::from_le_bytes_mod_order(b"init init"));
 
         // Verifier's transcript
-        let mut transcript_v: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_v: PoseidonSponge<Fr> = PoseidonSponge::<Fr>::new(&poseidon_config);
         transcript_v.absorb(&Fr::from_le_bytes_mod_order(b"init init"));
 
         let n_steps = 3;
@@ -725,7 +721,7 @@ pub mod tests {
 
             // Run the prover side of the multifolding
             let (proof, folded_lcccs, folded_witness, _) =
-                NIMFS::<Projective, PoseidonTranscript<Projective>>::prove(
+                NIMFS::<Projective, PoseidonSponge<Fr>>::prove(
                     &mut transcript_p,
                     &ccs,
                     &lcccs_instances,
@@ -736,7 +732,7 @@ pub mod tests {
                 .unwrap();
 
             // Run the verifier side of the multifolding
-            let folded_lcccs_v = NIMFS::<Projective, PoseidonTranscript<Projective>>::verify(
+            let folded_lcccs_v = NIMFS::<Projective, PoseidonSponge<Fr>>::verify(
                 &mut transcript_v,
                 &ccs,
                 &lcccs_instances,

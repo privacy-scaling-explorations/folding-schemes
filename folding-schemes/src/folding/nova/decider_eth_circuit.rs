@@ -1,7 +1,11 @@
 /// This file implements the onchain (Ethereum's EVM) decider circuit. For non-ethereum use cases,
 /// other more efficient approaches can be used.
 use ark_crypto_primitives::crh::poseidon::constraints::CRHParametersVar;
-use ark_crypto_primitives::sponge::{poseidon::PoseidonConfig, Absorb};
+use ark_crypto_primitives::sponge::{
+    constraints::CryptographicSpongeVar,
+    poseidon::{constraints::PoseidonSpongeVar, PoseidonConfig, PoseidonSponge},
+    Absorb, CryptographicSponge,
+};
 use ark_ec::{CurveGroup, Group};
 use ark_ff::{BigInteger, PrimeField};
 use ark_poly::Polynomial;
@@ -31,10 +35,7 @@ use crate::folding::circuits::{
 };
 use crate::folding::nova::{circuits::CommittedInstanceVar, CommittedInstance, Nova, Witness};
 use crate::frontend::FCircuit;
-use crate::transcript::{
-    poseidon::{PoseidonTranscript, PoseidonTranscriptVar},
-    Transcript, TranscriptVar,
-};
+use crate::transcript::{Transcript, TranscriptVar};
 use crate::utils::{
     gadgets::{MatrixGadget, SparseMatrixVar, VectorGadget},
     vec::poly_from_vec,
@@ -564,14 +565,14 @@ where
         let (cmE_x_limbs, cmE_y_limbs) = nonnative_affine_to_field_elements(U_i.cmE)?;
         let (cmW_x_limbs, cmW_y_limbs) = nonnative_affine_to_field_elements(U_i.cmW)?;
 
-        let transcript = &mut PoseidonTranscript::<C>::new(poseidon_config);
+        let transcript = &mut PoseidonSponge::<C::ScalarField>::new(poseidon_config);
         // compute the KZG challenges, which are computed in-circuit and checked that it matches
         // the inputted one
-        transcript.absorb_vec(&cmW_x_limbs);
-        transcript.absorb_vec(&cmW_y_limbs);
+        transcript.absorb(&cmW_x_limbs);
+        transcript.absorb(&cmW_y_limbs);
         let challenge_W = transcript.get_challenge();
-        transcript.absorb_vec(&cmE_x_limbs);
-        transcript.absorb_vec(&cmE_y_limbs);
+        transcript.absorb(&cmE_x_limbs);
+        transcript.absorb(&cmE_y_limbs);
         let challenge_E = transcript.get_challenge();
 
         Ok((challenge_W, challenge_E))
@@ -582,13 +583,12 @@ where
         poseidon_config: &PoseidonConfig<C::ScalarField>,
         U_i: CommittedInstanceVar<C>,
     ) -> Result<(FpVar<C::ScalarField>, FpVar<C::ScalarField>), SynthesisError> {
-        let mut transcript =
-            PoseidonTranscriptVar::<CF1<C>>::new(cs.clone(), &poseidon_config.clone());
+        let mut transcript = PoseidonSpongeVar::<CF1<C>>::new(cs.clone(), &poseidon_config.clone());
 
-        transcript.absorb_vec(&U_i.cmW.to_constraint_field()?[..])?;
+        transcript.absorb(&U_i.cmW.to_constraint_field()?)?;
         let challenge_W = transcript.get_challenge()?;
 
-        transcript.absorb_vec(&U_i.cmE.to_constraint_field()?[..])?;
+        transcript.absorb(&U_i.cmE.to_constraint_field()?)?;
         let challenge_E = transcript.get_challenge()?;
 
         Ok((challenge_W, challenge_E))

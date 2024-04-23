@@ -31,7 +31,7 @@ pub trait CommitmentScheme<C: CurveGroup, const H: bool = false>: Clone + Debug 
 
     fn prove(
         params: &Self::ProverParams,
-        transcript: &mut impl Transcript<C>,
+        transcript: &mut impl Transcript<C::ScalarField>,
         cm: &C,
         v: &[C::ScalarField],
         blind: &C::ScalarField,
@@ -50,7 +50,7 @@ pub trait CommitmentScheme<C: CurveGroup, const H: bool = false>: Clone + Debug 
 
     fn verify(
         params: &Self::VerifierParams,
-        transcript: &mut impl Transcript<C>,
+        transcript: &mut impl Transcript<C::ScalarField>,
         cm: &C,
         proof: &Self::Proof,
     ) -> Result<(), Error>;
@@ -69,7 +69,10 @@ pub trait CommitmentScheme<C: CurveGroup, const H: bool = false>: Clone + Debug 
 mod tests {
     use super::*;
     use ark_bn254::{Bn254, Fr, G1Projective as G1};
-    use ark_crypto_primitives::sponge::{poseidon::PoseidonConfig, Absorb};
+    use ark_crypto_primitives::sponge::{
+        poseidon::{PoseidonConfig, PoseidonSponge},
+        Absorb, CryptographicSponge,
+    };
     use ark_poly_commit::kzg10::VerifierKey;
     use ark_std::Zero;
     use ark_std::{test_rng, UniformRand};
@@ -77,10 +80,7 @@ mod tests {
     use super::ipa::IPA;
     use super::kzg::{ProverKey, KZG};
     use super::pedersen::Pedersen;
-    use crate::transcript::{
-        poseidon::{poseidon_canonical_config, PoseidonTranscript},
-        Transcript,
-    };
+    use crate::transcript::poseidon::poseidon_canonical_config;
 
     #[test]
     fn test_homomorphic_property_using_Commitment_trait() {
@@ -150,7 +150,7 @@ mod tests {
         let v_3: Vec<C::ScalarField> = v_1.iter().zip(v_2).map(|(a, b)| *a + (r * b)).collect();
 
         // compute the proof of the cm_3
-        let transcript_p = &mut PoseidonTranscript::<C>::new(poseidon_config);
+        let transcript_p = &mut PoseidonSponge::<C::ScalarField>::new(poseidon_config);
         let proof = CS::prove(
             prover_params,
             transcript_p,
@@ -162,7 +162,7 @@ mod tests {
         .unwrap();
 
         // verify the opening proof
-        let transcript_v = &mut PoseidonTranscript::<C>::new(poseidon_config);
+        let transcript_v = &mut PoseidonSponge::<C::ScalarField>::new(poseidon_config);
         CS::verify(verifier_params, transcript_v, &cm_3, &proof).unwrap();
     }
 }

@@ -1,9 +1,16 @@
-/// Implementation of [HyperNova](https://eprint.iacr.org/2023/573.pdf) circuits
-use ark_crypto_primitives::crh::{
-    poseidon::constraints::{CRHGadget, CRHParametersVar},
-    CRHSchemeGadget,
-};
 use ark_crypto_primitives::sponge::{poseidon::PoseidonConfig, Absorb};
+/// Implementation of [HyperNova](https://eprint.iacr.org/2023/573.pdf) circuits
+use ark_crypto_primitives::{
+    crh::{
+        poseidon::constraints::{CRHGadget, CRHParametersVar},
+        CRHSchemeGadget,
+    },
+    sponge::{
+        constraints::CryptographicSpongeVar,
+        poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge},
+        CryptographicSponge,
+    },
+};
 use ark_ec::{CurveGroup, Group};
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
@@ -45,10 +52,7 @@ use crate::utils::virtual_polynomial::VPAuxInfo;
 use crate::Error;
 use crate::{
     ccs::{r1cs::extract_r1cs, CCS},
-    transcript::{
-        poseidon::{PoseidonTranscript, PoseidonTranscriptVar},
-        Transcript, TranscriptVar,
-    },
+    transcript::TranscriptVar,
 };
 
 /// Committed CCS instance
@@ -166,7 +170,7 @@ where
 /// ProofVar defines a multifolding proof
 #[derive(Debug)]
 pub struct ProofVar<C: CurveGroup> {
-    pub sc_proof: IOPProofVar<C>,
+    pub sc_proof: IOPProofVar<C::ScalarField>,
     #[allow(clippy::type_complexity)]
     pub sigmas_thetas: (Vec<Vec<FpVar<CF1<C>>>>, Vec<Vec<FpVar<CF1<C>>>>),
 }
@@ -184,7 +188,7 @@ where
         f().and_then(|val| {
             let cs = cs.into();
 
-            let sc_proof = IOPProofVar::<C>::new_variable(
+            let sc_proof = IOPProofVar::<C::ScalarField>::new_variable(
                 cs.clone(),
                 || Ok(val.borrow().sc_proof.clone()),
                 mode,
@@ -222,12 +226,11 @@ where
     /// Runs (in-circuit) the NIMFS.V, which outputs the new folded LCCCS instance together with
     /// the rho_bits, which will be used in other parts of the AugmentedFCircuit
     #[allow(clippy::type_complexity)]
-    pub fn verify(
+    pub fn verify<S: CryptographicSponge, T: TranscriptVar<C::ScalarField, S>>(
         cs: ConstraintSystemRef<CF1<C>>,
         // only used the CCS params, not the matrices
         ccs: &CCS<C::ScalarField>,
-        mut transcript: impl TranscriptVar<C::ScalarField>,
-
+        mut transcript: T,
         running_instances: &[LCCCSVar<C>],
         new_instances: &[CCCSVar<C>],
         proof: ProofVar<C>,
@@ -243,11 +246,11 @@ where
                 U_i.v.clone(),
             ]
             .concat();
-            transcript.absorb_vec(&v)?;
+            transcript.absorb(&v)?;
         }
         for u_i in new_instances {
             let v = [u_i.C.to_constraint_field()?, u_i.x.clone()].concat();
-            transcript.absorb_vec(&v)?;
+            transcript.absorb(&v)?;
         }
 
         // get the challenges
@@ -282,7 +285,7 @@ where
         }
 
         // verify the interactive part of the sumcheck
-        let (e_vars, r_vars) = SumCheckVerifierGadget::<C>::verify(
+        let (e_vars, r_vars) = SumCheckVerifierGadget::<C::ScalarField>::verify(
             &proof.sc_proof,
             &vp_aux_info,
             &mut transcript,
@@ -557,9 +560,9 @@ where
         let w_i = W_i.clone();
         let u_i = CCCS::<C1>::dummy(ccs.l);
 
-        let mut transcript_p: PoseidonTranscript<C1> =
-            PoseidonTranscript::<C1>::new(&self.poseidon_config.clone());
-        let (nimfs_proof, U_i1, _, _) = NIMFS::<C1, PoseidonTranscript<C1>>::prove(
+        let mut transcript_p: PoseidonSponge<C1::ScalarField> =
+            PoseidonSponge::<C1::ScalarField>::new(&self.poseidon_config.clone());
+        let (nimfs_proof, U_i1, _, _) = NIMFS::<C1, PoseidonSponge<C1::ScalarField>>::prove(
             &mut transcript_p,
             &ccs,
             &[U_i.clone()],
@@ -700,8 +703,7 @@ where
         // Notice that NIMFSGadget::fold_committed_instance does not fold C. We set `U_i1.C` to
         // unconstrained witnesses `U_i1_C` respectively. Its correctness will be checked on the
         // other curve.
-        let transcript =
-            PoseidonTranscriptVar::<C1::ScalarField>::new(cs.clone(), &self.poseidon_config);
+        let transcript = PoseidonSpongeVar::new(cs.clone(), &self.poseidon_config);
         let (mut U_i1, rho_bits) = NIMFSGadget::<C1>::verify(
             cs.clone(),
             &self.ccs.clone(),
@@ -798,7 +800,6 @@ mod tests {
     use ark_bn254::{constraints::GVar, Fq, Fr, G1Projective as Projective};
     use ark_ff::BigInteger;
     use ark_grumpkin::{constraints::GVar as GVar2, Projective as Projective2};
-    use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar, R1CSVar};
     use ark_std::{test_rng, UniformRand};
     use std::time::Instant;
 
@@ -807,25 +808,15 @@ mod tests {
         ccs::{
             r1cs::extract_w_x,
             tests::{get_test_ccs, get_test_z},
-            CCS,
         },
         commitment::{pedersen::Pedersen, CommitmentScheme},
         folding::{
             circuits::cyclefold::{fold_cyclefold_circuit, CycleFoldCircuit},
-            hypernova::{
-                nimfs::NIMFS,
-                utils::{compute_c, compute_sigmas_thetas},
-                Witness,
-            },
-            nova::{
-                get_cm_coordinates, traits::NovaR1CS, CommittedInstance, Witness as NovaWitness,
-            },
+            hypernova::utils::{compute_c, compute_sigmas_thetas},
+            nova::{get_cm_coordinates, traits::NovaR1CS, Witness as NovaWitness},
         },
         frontend::tests::CubicFCircuit,
-        transcript::{
-            poseidon::{poseidon_canonical_config, PoseidonTranscript, PoseidonTranscriptVar},
-            Transcript,
-        },
+        transcript::poseidon::poseidon_canonical_config,
     };
 
     #[test]
@@ -965,12 +956,11 @@ mod tests {
 
         // Prover's transcript
         let poseidon_config = poseidon_canonical_config::<Fr>();
-        let mut transcript_p: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_p: PoseidonSponge<Fr> = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         // Run the prover side of the multifolding
         let (proof, folded_lcccs, folded_witness, _) =
-            NIMFS::<Projective, PoseidonTranscript<Projective>>::prove(
+            NIMFS::<Projective, PoseidonSponge<Fr>>::prove(
                 &mut transcript_p,
                 &ccs,
                 &lcccs_instances,
@@ -981,11 +971,10 @@ mod tests {
             .unwrap();
 
         // Verifier's transcript
-        let mut transcript_v: PoseidonTranscript<Projective> =
-            PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_v: PoseidonSponge<Fr> = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         // Run the verifier side of the multifolding
-        let folded_lcccs_v = NIMFS::<Projective, PoseidonTranscript<Projective>>::verify(
+        let folded_lcccs_v = NIMFS::<Projective, PoseidonSponge<Fr>>::verify(
             &mut transcript_v,
             &ccs,
             &lcccs_instances,
@@ -1010,7 +999,7 @@ mod tests {
                 .unwrap();
         let proofVar =
             ProofVar::<Projective>::new_witness(cs.clone(), || Ok(proof.clone())).unwrap();
-        let transcriptVar = PoseidonTranscriptVar::<Fr>::new(cs.clone(), &poseidon_config);
+        let transcriptVar = PoseidonSpongeVar::<Fr>::new(cs.clone(), &poseidon_config);
 
         let enabled = Boolean::<Fr>::new_witness(cs.clone(), || Ok(true)).unwrap();
         let (folded_lcccsVar, _) = NIMFSGadget::<Projective>::verify(
@@ -1128,10 +1117,9 @@ mod tests {
         let mut iFr = Fr::zero();
         for i in 0..n_steps {
             let start = Instant::now();
-            let mut transcript_p: PoseidonTranscript<Projective> =
-                PoseidonTranscript::<Projective>::new(&poseidon_config.clone());
+            let mut transcript_p: PoseidonSponge<Fr> = PoseidonSponge::<Fr>::new(&poseidon_config);
             let (nimfs_proof, U_i1, W_i1, rho_bits) =
-                NIMFS::<Projective, PoseidonTranscript<Projective>>::prove(
+                NIMFS::<Projective, PoseidonSponge<Fr>>::prove(
                     &mut transcript_p,
                     &ccs,
                     &[U_i.clone()],
