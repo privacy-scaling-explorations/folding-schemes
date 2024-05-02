@@ -405,7 +405,7 @@ fn eval_f<F: PrimeField>(r1cs: &R1CS<F>, z: &[F]) -> Result<Vec<F>, Error> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use ark_crypto_primitives::sponge::poseidon::PoseidonSponge;
     use ark_crypto_primitives::sponge::CryptographicSponge;
@@ -474,7 +474,7 @@ mod tests {
 
     // k represents the number of instances to be fold, apart from the running instance
     #[allow(clippy::type_complexity)]
-    fn prepare_inputs(
+    pub fn prepare_inputs(
         k: usize,
     ) -> (
         Witness<Fr>,
