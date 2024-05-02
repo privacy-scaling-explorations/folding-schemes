@@ -124,7 +124,7 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for IPA<C, H> {
             r = vec![];
         }
 
-        transcript.absorb_point(P);
+        transcript.absorb_nonnative(P);
         let x = transcript.get_challenge(); // challenge value at which we evaluate
         let s = transcript.get_challenge();
         let U = C::generator().mul(s);
@@ -155,8 +155,8 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for IPA<C, H> {
                 R[j] = C::msm_unchecked(&G[..m], &a[m..]) + U.mul(inner_prod(&a[m..], &b[..m])?);
             }
             // get challenge for the j-th round
-            transcript.absorb_point(&L[j]);
-            transcript.absorb_point(&R[j]);
+            transcript.absorb_nonnative(&L[j]);
+            transcript.absorb_nonnative(&R[j]);
             u[j] = transcript.get_challenge();
 
             let uj = u[j];
@@ -225,14 +225,14 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for IPA<C, H> {
         let (p, _r) = (proof.0.clone(), proof.1);
         let k = p.L.len();
 
-        transcript.absorb_point(P);
+        transcript.absorb_nonnative(P);
         let x = transcript.get_challenge(); // challenge value at which we evaluate
         let s = transcript.get_challenge();
         let U = C::generator().mul(s);
         let mut u: Vec<C::ScalarField> = vec![C::ScalarField::zero(); k];
         for i in (0..k).rev() {
-            transcript.absorb_point(&p.L[i]);
-            transcript.absorb_point(&p.R[i]);
+            transcript.absorb_nonnative(&p.L[i]);
+            transcript.absorb_nonnative(&p.R[i]);
             u[i] = transcript.get_challenge();
         }
         let challenge = (x, U, u);
@@ -660,14 +660,14 @@ mod tests {
         let cs = ConstraintSystem::<Fq>::new_ref();
 
         let mut transcript_v = PoseidonSponge::<Fr>::new(&poseidon_config);
-        transcript_v.absorb_point(&cm);
+        transcript_v.absorb_nonnative(&cm);
         let challenge = transcript_v.get_challenge(); // challenge value at which we evaluate
         let s = transcript_v.get_challenge();
         let U = Projective::generator().mul(s);
         let mut u: Vec<Fr> = vec![Fr::zero(); k];
         for i in (0..k).rev() {
-            transcript_v.absorb_point(&proof.0.L[i]);
-            transcript_v.absorb_point(&proof.0.R[i]);
+            transcript_v.absorb_nonnative(&proof.0.L[i]);
+            transcript_v.absorb_nonnative(&proof.0.R[i]);
             u[i] = transcript_v.get_challenge();
         }
 

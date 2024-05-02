@@ -13,7 +13,6 @@ use super::{
 };
 use crate::ccs::CCS;
 use crate::constants::N_BITS_RO;
-use crate::folding::circuits::nonnative::affine::nonnative_affine_to_field_elements;
 use crate::transcript::Transcript;
 use crate::utils::sum_check::structs::{IOPProof as SumCheckProof, IOPProverMessage};
 use crate::utils::sum_check::{IOPSumCheck, SumCheck};
@@ -184,24 +183,8 @@ where
         w_cccs: &[Witness<C::ScalarField>],
     ) -> Result<(NIMFSProof<C>, LCCCS<C>, Witness<C::ScalarField>, Vec<bool>), Error> {
         // absorb instances to transcript
-        for U_i in running_instances {
-            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(U_i.C);
-            let v = [
-                C_x,
-                C_y,
-                vec![U_i.u],
-                U_i.x.clone(),
-                U_i.r_x.clone(),
-                U_i.v.clone(),
-            ]
-            .concat();
-            transcript.absorb(&v);
-        }
-        for u_i in new_instances {
-            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(u_i.C);
-            let v = [C_x, C_y, u_i.x.clone()].concat();
-            transcript.absorb(&v);
-        }
+        transcript.absorb(&running_instances);
+        transcript.absorb(&new_instances);
 
         if running_instances.is_empty() {
             return Err(Error::Empty);
@@ -295,24 +278,8 @@ where
         proof: NIMFSProof<C>,
     ) -> Result<LCCCS<C>, Error> {
         // absorb instances to transcript
-        for U_i in running_instances {
-            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(U_i.C);
-            let v = [
-                C_x,
-                C_y,
-                vec![U_i.u],
-                U_i.x.clone(),
-                U_i.r_x.clone(),
-                U_i.v.clone(),
-            ]
-            .concat();
-            transcript.absorb(&v);
-        }
-        for u_i in new_instances {
-            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(u_i.C);
-            let v = [C_x, C_y, u_i.x.clone()].concat();
-            transcript.absorb(&v);
-        }
+        transcript.absorb(&running_instances);
+        transcript.absorb(&new_instances);
 
         if running_instances.is_empty() {
             return Err(Error::Empty);

@@ -5,7 +5,7 @@ use ark_r1cs_std::{fields::fp::FpVar, uint8::UInt8, ToConstraintFieldGadget};
 use ark_relations::r1cs::SynthesisError;
 
 use super::{CommittedInstance, CommittedInstanceVar};
-use crate::folding::circuits::nonnative::affine::nonnative_affine_to_field_elements;
+use crate::transcript::AbsorbNonNative;
 
 // Implements the trait for absorbing ProtoGalaxy's CommittedInstance.
 impl<C: CurveGroup<ScalarField: Absorb>> Absorb for CommittedInstance<C> {
@@ -14,9 +14,9 @@ impl<C: CurveGroup<ScalarField: Absorb>> Absorb for CommittedInstance<C> {
     }
 
     fn to_sponge_field_elements<F: PrimeField>(&self, dest: &mut Vec<F>) {
-        let (x, y) = nonnative_affine_to_field_elements(self.phi);
-        x.to_sponge_field_elements(dest);
-        y.to_sponge_field_elements(dest);
+        self.phi
+            .to_native_sponge_field_elements_as_vec()
+            .to_sponge_field_elements(dest);
         self.betas.to_sponge_field_elements(dest);
         self.e.to_sponge_field_elements(dest);
     }

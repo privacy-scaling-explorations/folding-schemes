@@ -267,8 +267,7 @@ pub mod tests {
             ci1.clone(),
             ci2.clone(),
             cmT,
-        )
-        .unwrap();
+        );
         let r_Fr = C::ScalarField::from_bigint(BigInteger::from_bits_le(&r_bits)).unwrap();
 
         let (w3, ci3) =

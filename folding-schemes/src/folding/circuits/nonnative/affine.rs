@@ -8,6 +8,8 @@ use ark_relations::r1cs::{Namespace, SynthesisError};
 use ark_std::Zero;
 use core::borrow::Borrow;
 
+use crate::transcript::{AbsorbNonNative, AbsorbNonNativeGadget};
+
 use super::uint::{nonnative_field_to_field_elements, NonNativeUintVar};
 
 /// NonNativeAffineVar represents an elliptic curve point in Affine representation in the non-native
@@ -55,7 +57,7 @@ impl<C: CurveGroup> ToConstraintFieldGadget<C::ScalarField> for NonNativeAffineV
 
 /// The out-circuit counterpart of `NonNativeAffineVar::to_constraint_field`
 #[allow(clippy::type_complexity)]
-pub fn nonnative_affine_to_field_elements<C: CurveGroup>(
+fn nonnative_affine_to_field_elements<C: CurveGroup>(
     p: C,
 ) -> (Vec<C::ScalarField>, Vec<C::ScalarField>) {
     let affine = p.into_affine();
@@ -82,6 +84,22 @@ impl<C: CurveGroup> NonNativeAffineVar<C> {
         let x = NonNativeUintVar::inputize(*x);
         let y = NonNativeUintVar::inputize(*y);
         Ok((x, y))
+    }
+}
+
+impl<C: CurveGroup> AbsorbNonNative<C::ScalarField> for C {
+    fn to_native_sponge_field_elements(&self, dest: &mut Vec<C::ScalarField>) {
+        let (x, y) = nonnative_affine_to_field_elements(*self);
+        dest.extend(x);
+        dest.extend(y);
+    }
+}
+
+impl<C: CurveGroup> AbsorbNonNativeGadget<C::ScalarField> for NonNativeAffineVar<C> {
+    fn to_native_sponge_field_elements(
+        &self,
+    ) -> Result<Vec<FpVar<C::ScalarField>>, SynthesisError> {
+        self.to_constraint_field()
     }
 }
 

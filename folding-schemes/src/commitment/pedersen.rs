@@ -80,7 +80,7 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for Pedersen<C, H> {
         r: &C::ScalarField, // blinding factor
         _rng: Option<&mut dyn RngCore>,
     ) -> Result<Self::Proof, Error> {
-        transcript.absorb_point(cm);
+        transcript.absorb_nonnative(cm);
         let r1 = transcript.get_challenge();
         let d = transcript.get_challenges(v.len());
 
@@ -91,7 +91,7 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for Pedersen<C, H> {
             R += params.h.mul(r1);
         }
 
-        transcript.absorb_point(&R);
+        transcript.absorb_nonnative(&R);
         let e = transcript.get_challenge();
 
         let challenge = (r1, d, R, e);
@@ -130,10 +130,10 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for Pedersen<C, H> {
         cm: &C,
         proof: &Proof<C>,
     ) -> Result<(), Error> {
-        transcript.absorb_point(cm);
+        transcript.absorb_nonnative(cm);
         transcript.get_challenge(); // r_1
         transcript.get_challenges(proof.u.len()); // d
-        transcript.absorb_point(&proof.R);
+        transcript.absorb_nonnative(&proof.R);
         let e = transcript.get_challenge();
         Self::verify_with_challenge(params, e, cm, proof)
     }

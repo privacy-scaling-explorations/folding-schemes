@@ -157,7 +157,7 @@ mod tests {
         let (x_proof, y_proof) = proof_affine.xy().unwrap();
         let y = proof.eval.into_bigint().to_bytes_be();
 
-        transcript_v.absorb_point(&cm).unwrap();
+        transcript_v.absorb_nonnative(&cm);
         let x = transcript_v.get_challenge();
 
         let x = x.into_bigint().to_bytes_be();

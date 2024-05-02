@@ -1,6 +1,6 @@
-use ark_crypto_primitives::{
-    crh::{poseidon::CRH, CRHScheme},
-    sponge::{poseidon::PoseidonConfig, Absorb},
+use ark_crypto_primitives::sponge::{
+    poseidon::{PoseidonConfig, PoseidonSponge},
+    Absorb, CryptographicSponge,
 };
 use ark_ec::{CurveGroup, Group};
 use ark_ff::PrimeField;
@@ -15,7 +15,7 @@ use crate::commitment::{
     pedersen::{Params as PedersenParams, Pedersen},
     CommitmentScheme,
 };
-use crate::folding::circuits::nonnative::affine::nonnative_affine_to_field_elements;
+use crate::transcript::AbsorbNonNative;
 use crate::utils::mle::dense_vec_to_dense_mle;
 use crate::utils::vec::mat_vec_mul;
 use crate::Error;
@@ -122,6 +122,26 @@ impl<C: CurveGroup> LCCCS<C> {
     }
 }
 
+impl<C: CurveGroup<ScalarField: Absorb>> Absorb for LCCCS<C> {
+    fn to_sponge_bytes(&self, _dest: &mut Vec<u8>) {
+        // This is never called
+        unimplemented!()
+    }
+
+    fn to_sponge_field_elements<F: PrimeField>(&self, dest: &mut Vec<F>) {
+        // We cannot call `to_native_sponge_field_elements(dest)` directly, as
+        // `to_native_sponge_field_elements` needs `F` to be `C::ScalarField`,
+        // but here `F` is a generic `PrimeField`.
+        self.C
+            .to_native_sponge_field_elements_as_vec()
+            .to_sponge_field_elements(dest);
+        self.u.to_sponge_field_elements(dest);
+        self.x.to_sponge_field_elements(dest);
+        self.r_x.to_sponge_field_elements(dest);
+        self.v.to_sponge_field_elements(dest);
+    }
+}
+
 impl<C: CurveGroup> LCCCS<C>
 where
     <C as Group>::ScalarField: Absorb,
@@ -136,25 +156,13 @@ where
         i: C::ScalarField,
         z_0: Vec<C::ScalarField>,
         z_i: Vec<C::ScalarField>,
-    ) -> Result<C::ScalarField, Error> {
-        let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(self.C);
-
-        CRH::<C::ScalarField>::evaluate(
-            poseidon_config,
-            vec![
-                vec![i],
-                z_0,
-                z_i,
-                C_x,
-                C_y,
-                vec![self.u],
-                self.x.clone(),
-                self.r_x.clone(),
-                self.v.clone(),
-            ]
-            .concat(),
-        )
-        .map_err(|e| Error::Other(e.to_string()))
+    ) -> C::ScalarField {
+        let mut sponge = PoseidonSponge::new(poseidon_config);
+        sponge.absorb(&i);
+        sponge.absorb(&z_0);
+        sponge.absorb(&z_i);
+        sponge.absorb(&self);
+        sponge.squeeze_field_elements(1)[0]
     }
 }
 

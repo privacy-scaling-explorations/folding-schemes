@@ -1,16 +1,10 @@
-use ark_crypto_primitives::sponge::{poseidon::PoseidonConfig, Absorb};
 /// Implementation of [HyperNova](https://eprint.iacr.org/2023/573.pdf) circuits
-use ark_crypto_primitives::{
-    crh::{
-        poseidon::constraints::{CRHGadget, CRHParametersVar},
-        CRHSchemeGadget,
-    },
-    sponge::{
-        constraints::CryptographicSpongeVar,
-        poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge},
-        CryptographicSponge,
-    },
+use ark_crypto_primitives::sponge::{
+    constraints::CryptographicSpongeVar,
+    poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge},
+    CryptographicSponge,
 };
+use ark_crypto_primitives::sponge::{poseidon::PoseidonConfig, Absorb};
 use ark_ec::{CurveGroup, Group};
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
@@ -146,11 +140,12 @@ where
     #[allow(clippy::type_complexity)]
     pub fn hash(
         self,
-        crh_params: &CRHParametersVar<CF1<C>>,
+        sponge: &PoseidonSpongeVar<CF1<C>>,
         i: FpVar<CF1<C>>,
         z_0: Vec<FpVar<CF1<C>>>,
         z_i: Vec<FpVar<CF1<C>>>,
     ) -> Result<(FpVar<CF1<C>>, Vec<FpVar<CF1<C>>>), SynthesisError> {
+        let mut sponge = sponge.clone();
         let U_vec = [
             self.C.to_constraint_field()?,
             vec![self.u],
@@ -159,11 +154,11 @@ where
             self.v,
         ]
         .concat();
-        let input = [vec![i], z_0, z_i, U_vec.clone()].concat();
-        Ok((
-            CRHGadget::<C::ScalarField>::evaluate(crh_params, &input)?,
-            U_vec,
-        ))
+        sponge.absorb(&i)?;
+        sponge.absorb(&z_0)?;
+        sponge.absorb(&z_i)?;
+        sponge.absorb(&U_vec)?;
+        Ok((sponge.squeeze_field_elements(1)?.pop().unwrap(), U_vec))
     }
 }
 
@@ -666,10 +661,7 @@ where
         })?;
         let cf_cmT = GC2::new_witness(cs.clone(), || Ok(self.cf_cmT.unwrap_or_else(C2::zero)))?;
 
-        let crh_params = CRHParametersVar::<C1::ScalarField>::new_constant(
-            cs.clone(),
-            self.poseidon_config.clone(),
-        )?;
+        let sponge = PoseidonSpongeVar::<C1::ScalarField>::new(cs.clone(), &self.poseidon_config);
 
         // get z_{i+1} from the F circuit
         let i_usize = self.i_usize.unwrap_or(0);
@@ -685,9 +677,9 @@ where
         // u_i.x[0] = H(i, z_0, z_i, U_i)
         let (u_i_x, _) = U_i
             .clone()
-            .hash(&crh_params, i.clone(), z_0.clone(), z_i.clone())?;
+            .hash(&sponge, i.clone(), z_0.clone(), z_i.clone())?;
         // u_i.x[1] = H(cf_U_i)
-        let (cf_u_i_x, cf_U_i_vec) = cf_U_i.clone().hash(&crh_params)?;
+        let (cf_u_i_x, cf_U_i_vec) = cf_U_i.clone().hash(&sponge)?;
 
         // P.2. Construct u_i
         let u_i = CCCSVar::<C1> {
@@ -717,7 +709,7 @@ where
 
         // P.4.a compute and check the first output of F'
         let (u_i1_x, _) = U_i1.clone().hash(
-            &crh_params,
+            &sponge,
             i + FpVar::<CF1<C1>>::one(),
             z_0.clone(),
             z_i1.clone(),
@@ -782,10 +774,9 @@ where
         // P.4.b compute and check the second output of F'
         // Base case: u_{i+1}.x[1] == H(cf_U_{\bot})
         // Non-base case: u_{i+1}.x[1] == H(cf_U_{i+1})
-        let (cf_u_i1_x, _) = cf_U_i1.clone().hash(&crh_params)?;
+        let (cf_u_i1_x, _) = cf_U_i1.clone().hash(&sponge)?;
         let (cf_u_i1_x_base, _) =
-            CycleFoldCommittedInstanceVar::new_constant(cs.clone(), cf_u_dummy)?
-                .hash(&crh_params)?;
+            CycleFoldCommittedInstanceVar::new_constant(cs.clone(), cf_u_dummy)?.hash(&sponge)?;
         let cf_x = FpVar::new_input(cs.clone(), || {
             Ok(self.cf_x.unwrap_or(cf_u_i1_x_base.value()?))
         })?;
@@ -1034,19 +1025,18 @@ mod tests {
         let (lcccs, _) = ccs.to_lcccs(&mut rng, &pedersen_params, &z1).unwrap();
         let h = lcccs
             .clone()
-            .hash(&poseidon_config, i, z_0.clone(), z_i.clone())
-            .unwrap();
+            .hash(&poseidon_config, i, z_0.clone(), z_i.clone());
 
         let cs = ConstraintSystem::<Fr>::new_ref();
 
-        let crh_params = CRHParametersVar::<Fr>::new_constant(cs.clone(), poseidon_config).unwrap();
+        let sponge = PoseidonSpongeVar::<Fr>::new(cs.clone(), &poseidon_config);
         let iVar = FpVar::<Fr>::new_witness(cs.clone(), || Ok(i)).unwrap();
         let z_0Var = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_0.clone())).unwrap();
         let z_iVar = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_i.clone())).unwrap();
         let lcccsVar = LCCCSVar::<Projective>::new_witness(cs.clone(), || Ok(lcccs)).unwrap();
         let (hVar, _) = lcccsVar
             .clone()
-            .hash(&crh_params, iVar.clone(), z_0Var.clone(), z_iVar.clone())
+            .hash(&sponge, iVar.clone(), z_0Var.clone(), z_iVar.clone())
             .unwrap();
         assert!(cs.is_satisfied().unwrap());
 
@@ -1108,9 +1098,8 @@ mod tests {
         let mut cf_W_i = cf_w_dummy.clone();
         let mut cf_U_i = cf_u_dummy.clone();
         u_i.x = vec![
-            U_i.hash(&poseidon_config, Fr::zero(), z_0.clone(), z_i.clone())
-                .unwrap(),
-            cf_U_i.hash_cyclefold(&poseidon_config).unwrap(),
+            U_i.hash(&poseidon_config, Fr::zero(), z_0.clone(), z_i.clone()),
+            cf_U_i.hash_cyclefold(&poseidon_config),
         ];
 
         let n_steps: usize = 4;
@@ -1133,14 +1122,12 @@ mod tests {
             U_i1.check_relation(&pedersen_params, &ccs, &W_i1).unwrap();
 
             let z_i1 = F_circuit.step_native(i, z_i.clone(), vec![]).unwrap();
-            let u_i1_x = U_i1
-                .hash(&poseidon_config, iFr + Fr::one(), z_0.clone(), z_i1.clone())
-                .unwrap();
+            let u_i1_x = U_i1.hash(&poseidon_config, iFr + Fr::one(), z_0.clone(), z_i1.clone());
 
             if i == 0 {
                 // hash the initial (dummy) CycleFold instance, which is used as the 2nd public
                 // input in the AugmentedFCircuit
-                let cf_u_i1_x = cf_U_i.hash_cyclefold(&poseidon_config).unwrap();
+                let cf_u_i1_x = cf_U_i.hash_cyclefold(&poseidon_config);
 
                 augmented_f_circuit =
                     AugmentedFCircuit::<Projective, Projective2, GVar2, CubicFCircuit<Fr>> {
@@ -1208,7 +1195,7 @@ mod tests {
 
                 // hash the CycleFold folded instance, which is used as the 2nd public input in the
                 // AugmentedFCircuit
-                let cf_u_i1_x = cf_U_i1.hash_cyclefold(&poseidon_config).unwrap();
+                let cf_u_i1_x = cf_U_i1.hash_cyclefold(&poseidon_config);
 
                 augmented_f_circuit =
                     AugmentedFCircuit::<Projective, Projective2, GVar2, CubicFCircuit<Fr>> {
@@ -1256,10 +1243,9 @@ mod tests {
             assert_eq!(u_i.x, r1cs_x_i1);
             assert_eq!(u_i.x[0], augmented_f_circuit.x.unwrap());
             assert_eq!(u_i.x[1], augmented_f_circuit.cf_x.unwrap());
-            let expected_u_i1_x = U_i1
-                .hash(&poseidon_config, iFr + Fr::one(), z_0.clone(), z_i1.clone())
-                .unwrap();
-            let expected_cf_U_i1_x = cf_U_i.hash_cyclefold(&poseidon_config).unwrap();
+            let expected_u_i1_x =
+                U_i1.hash(&poseidon_config, iFr + Fr::one(), z_0.clone(), z_i1.clone());
+            let expected_cf_U_i1_x = cf_U_i.hash_cyclefold(&poseidon_config);
             // u_i is already u_i1 at this point, check that has the expected value at x[0]
             assert_eq!(u_i.x[0], expected_u_i1_x);
             assert_eq!(u_i.x[1], expected_cf_U_i1_x);

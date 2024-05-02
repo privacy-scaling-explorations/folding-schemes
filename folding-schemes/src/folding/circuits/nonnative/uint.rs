@@ -16,7 +16,10 @@ use ark_relations::r1cs::{ConstraintSystemRef, Namespace, SynthesisError};
 use num_bigint::BigUint;
 use num_integer::Integer;
 
-use crate::utils::gadgets::{MatrixGadget, SparseMatrixVar, VectorGadget};
+use crate::{
+    transcript::{AbsorbNonNative, AbsorbNonNativeGadget},
+    utils::gadgets::{MatrixGadget, SparseMatrixVar, VectorGadget},
+};
 
 /// `LimbVar` represents a single limb of a non-native unsigned integer in the
 /// circuit.
@@ -807,8 +810,27 @@ impl<F: PrimeField, B: AsRef<[Boolean<F>]>> From<B> for NonNativeUintVar<F> {
     }
 }
 
+// If we impl `AbsorbNonNative` directly for `PrimeField`, rustc will complain
+// that this impl conflicts with the impl for `CurveGroup`.
+// Therefore, we instead impl `AbsorbNonNative` for a slice of `PrimeField` as a
+// workaround.
+impl<TargetField: PrimeField, BaseField: PrimeField> AbsorbNonNative<BaseField>
+    for [TargetField]
+{
+    fn to_native_sponge_field_elements(&self, dest: &mut Vec<BaseField>) {
+        self.iter()
+            .for_each(|x| dest.extend(&nonnative_field_to_field_elements(x)));
+    }
+}
+
+impl<F: PrimeField> AbsorbNonNativeGadget<F> for NonNativeUintVar<F> {
+    fn to_native_sponge_field_elements(&self) -> Result<Vec<FpVar<F>>, SynthesisError> {
+        self.to_constraint_field()
+    }
+}
+
 /// The out-circuit counterpart of `NonNativeUintVar::to_constraint_field`
-pub fn nonnative_field_to_field_elements<TargetField: Field, BaseField: PrimeField>(
+pub(super) fn nonnative_field_to_field_elements<TargetField: Field, BaseField: PrimeField>(
     f: &TargetField,
 ) -> Vec<BaseField> {
     assert_eq!(TargetField::extension_degree(), 1);
