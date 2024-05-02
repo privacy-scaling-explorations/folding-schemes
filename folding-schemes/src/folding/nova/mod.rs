@@ -109,12 +109,12 @@ where
     /// `CommittedInstance`.
     pub fn hash(
         &self,
-        poseidon_config: &PoseidonConfig<C::ScalarField>,
+        sponge: &PoseidonSponge<C::ScalarField>,
         i: C::ScalarField,
         z_0: Vec<C::ScalarField>,
         z_i: Vec<C::ScalarField>,
     ) -> C::ScalarField {
-        let mut sponge = PoseidonSponge::new(poseidon_config);
+        let mut sponge = sponge.clone();
         sponge.absorb(&i);
         sponge.absorb(&z_0);
         sponge.absorb(&z_i);
@@ -130,8 +130,8 @@ where
     /// hash_cyclefold implements the committed instance hash compatible with the gadget implemented in
     /// nova/cyclefold.rs::CycleFoldCommittedInstanceVar.hash.
     /// Returns `H(U_i)`, where `U_i` is the `CommittedInstance` for CycleFold.
-    pub fn hash_cyclefold(&self, poseidon_config: &PoseidonConfig<C::BaseField>) -> C::BaseField {
-        let mut sponge = PoseidonSponge::new(poseidon_config);
+    pub fn hash_cyclefold(&self, sponge: &PoseidonSponge<C::BaseField>) -> C::BaseField {
+        let mut sponge = sponge.clone();
         sponge.absorb_nonnative(self);
         sponge.squeeze_field_elements(1)[0]
     }
@@ -332,6 +332,11 @@ where
 
     /// Implements IVC.P of Nova+CycleFold
     fn prove_step(&mut self, external_inputs: Vec<C1::ScalarField>) -> Result<(), Error> {
+        // `sponge` is for digest computation.
+        let sponge = PoseidonSponge::<C1::ScalarField>::new(&self.poseidon_config);
+        // `transcript` is for challenge generation.
+        let mut transcript = sponge.clone();
+
         let augmented_F_circuit: AugmentedFCircuit<C1, C2, GC2, FC>;
 
         if self.z_i.len() != self.F.state_len() {
@@ -367,7 +372,7 @@ where
 
         // r_bits is the r used to the RLC of the F' instances
         let r_bits = ChallengeGadget::<C1>::get_challenge_native(
-            &self.poseidon_config,
+            &mut transcript,
             self.U_i.clone(),
             self.u_i.clone(),
             cmT,
@@ -385,7 +390,7 @@ where
         // folded instance output (public input, x)
         // u_{i+1}.x[0] = H(i+1, z_0, z_{i+1}, U_{i+1})
         let u_i1_x = U_i1.hash(
-            &self.poseidon_config,
+            &sponge,
             self.i + C1::ScalarField::one(),
             self.z_0.clone(),
             z_i1.clone(),
@@ -394,7 +399,7 @@ where
         let cf_u_i1_x: C1::ScalarField;
 
         if self.i == C1::ScalarField::zero() {
-            cf_u_i1_x = self.cf_U_i.hash_cyclefold(&self.poseidon_config);
+            cf_u_i1_x = self.cf_U_i.hash_cyclefold(&sponge);
             // base case
             augmented_F_circuit = AugmentedFCircuit::<C1, C2, GC2, FC> {
                 _gc2: PhantomData,
@@ -458,16 +463,22 @@ where
 
             // fold self.cf_U_i + cfW_U -> folded running with cfW
             let (_cfW_w_i, cfW_u_i, cfW_W_i1, cfW_U_i1, cfW_cmT, _) = self.fold_cyclefold_circuit(
+                &mut transcript,
                 self.cf_W_i.clone(), // CycleFold running instance witness
                 self.cf_U_i.clone(), // CycleFold running instance
                 cfW_u_i_x,
                 cfW_circuit,
             )?;
             // fold [the output from folding self.cf_U_i + cfW_U] + cfE_U = folded_running_with_cfW + cfE
-            let (_cfE_w_i, cfE_u_i, cf_W_i1, cf_U_i1, cf_cmT, _) =
-                self.fold_cyclefold_circuit(cfW_W_i1, cfW_U_i1.clone(), cfE_u_i_x, cfE_circuit)?;
+            let (_cfE_w_i, cfE_u_i, cf_W_i1, cf_U_i1, cf_cmT, _) = self.fold_cyclefold_circuit(
+                &mut transcript,
+                cfW_W_i1,
+                cfW_U_i1.clone(),
+                cfE_u_i_x,
+                cfE_circuit,
+            )?;
 
-            cf_u_i1_x = cf_U_i1.hash_cyclefold(&self.poseidon_config);
+            cf_u_i1_x = cf_U_i1.hash_cyclefold(&sponge);
 
             augmented_F_circuit = AugmentedFCircuit::<C1, C2, GC2, FC> {
                 _gc2: PhantomData,
@@ -568,6 +579,8 @@ where
         incoming_instance: Self::CommittedInstanceWithWitness,
         cyclefold_instance: Self::CFCommittedInstanceWithWitness,
     ) -> Result<(), Error> {
+        let sponge = PoseidonSponge::<C1::ScalarField>::new(&vp.poseidon_config);
+
         let (U_i, W_i) = running_instance;
         let (u_i, w_i) = incoming_instance;
         let (cf_U_i, cf_W_i) = cyclefold_instance;
@@ -578,12 +591,12 @@ where
 
         // check that u_i's output points to the running instance
         // u_i.X[0] == H(i, z_0, z_i, U_i)
-        let expected_u_i_x = U_i.hash(&vp.poseidon_config, num_steps, z_0, z_i.clone());
+        let expected_u_i_x = U_i.hash(&sponge, num_steps, z_0, z_i.clone());
         if expected_u_i_x != u_i.x[0] {
             return Err(Error::IVCVerificationFail);
         }
         // u_i.X[1] == H(cf_U_i)
-        let expected_cf_u_i_x = cf_U_i.hash_cyclefold(&vp.poseidon_config);
+        let expected_cf_u_i_x = cf_U_i.hash_cyclefold(&sponge);
         if expected_cf_u_i_x != u_i.x[1] {
             return Err(Error::IVCVerificationFail);
         }
@@ -654,6 +667,7 @@ where
     #[allow(clippy::type_complexity)]
     fn fold_cyclefold_circuit(
         &self,
+        transcript: &mut PoseidonSponge<C1::ScalarField>,
         cf_W_i: Witness<C2>,           // witness of the running instance
         cf_U_i: CommittedInstance<C2>, // running instance
         cf_u_i_x: Vec<C2::ScalarField>,
@@ -670,7 +684,7 @@ where
         Error,
     > {
         fold_cyclefold_circuit::<C1, GC1, C2, GC2, FC, CS1, CS2>(
-            &self.poseidon_config,
+            transcript,
             self.cf_r1cs.clone(),
             self.cf_cs_params.clone(),
             cf_W_i,

@@ -184,31 +184,28 @@ where
     <C as Group>::ScalarField: Absorb,
 {
     pub fn get_challenge_native(
-        poseidon_config: &PoseidonConfig<C::ScalarField>,
+        transcript: &mut PoseidonSponge<C::ScalarField>,
         U_i: CommittedInstance<C>,
         u_i: CommittedInstance<C>,
         cmT: C,
     ) -> Vec<bool> {
-        let mut sponge = PoseidonSponge::new(poseidon_config);
-        sponge.absorb(&U_i);
-        sponge.absorb(&u_i);
-        sponge.absorb_nonnative(&cmT);
-        sponge.squeeze_bits(N_BITS_RO)
+        transcript.absorb(&U_i);
+        transcript.absorb(&u_i);
+        transcript.absorb_nonnative(&cmT);
+        transcript.squeeze_bits(N_BITS_RO)
     }
 
     // compatible with the native get_challenge_native
     pub fn get_challenge_gadget(
-        cs: ConstraintSystemRef<C::ScalarField>,
-        poseidon_config: &PoseidonConfig<C::ScalarField>,
+        transcript: &mut PoseidonSpongeVar<C::ScalarField>,
         U_i_vec: Vec<FpVar<CF1<C>>>, // apready processed input, so we don't have to recompute these values
         u_i: CommittedInstanceVar<C>,
         cmT: NonNativeAffineVar<C>,
     ) -> Result<Vec<Boolean<C::ScalarField>>, SynthesisError> {
-        let mut sponge = PoseidonSpongeVar::new(cs, poseidon_config);
-        sponge.absorb(&U_i_vec)?;
-        sponge.absorb(&u_i)?;
-        sponge.absorb_nonnative(&cmT)?;
-        sponge.squeeze_bits(N_BITS_RO)
+        transcript.absorb(&U_i_vec)?;
+        transcript.absorb(&u_i)?;
+        transcript.absorb_nonnative(&cmT)?;
+        transcript.squeeze_bits(N_BITS_RO)
     }
 }
 
@@ -336,7 +333,10 @@ where
         let cf1_cmT = GC2::new_witness(cs.clone(), || Ok(self.cf1_cmT.unwrap_or_else(C2::zero)))?;
         let cf2_cmT = GC2::new_witness(cs.clone(), || Ok(self.cf2_cmT.unwrap_or_else(C2::zero)))?;
 
+        // `sponge` is for digest computation.
         let sponge = PoseidonSpongeVar::<C1::ScalarField>::new(cs.clone(), &self.poseidon_config);
+        // `transcript` is for challenge generation.
+        let mut transcript = sponge.clone();
 
         // get z_{i+1} from the F circuit
         let i_usize = self.i_usize.unwrap_or(0);
@@ -373,8 +373,7 @@ where
 
         // compute r = H(u_i, U_i, cmT)
         let r_bits = ChallengeGadget::<C1>::get_challenge_gadget(
-            cs.clone(),
-            &self.poseidon_config,
+            &mut transcript,
             U_i_vec,
             u_i.clone(),
             cmT.clone(),
@@ -458,8 +457,7 @@ where
         // compute cf1_r = H(cf1_u_i, cf_U_i, cf1_cmT)
         // cf_r_bits is denoted by rho* in the paper.
         let cf1_r_bits = CycleFoldChallengeGadget::<C2, GC2>::get_challenge_gadget(
-            cs.clone(),
-            &self.poseidon_config,
+            &mut transcript,
             cf_U_i_vec,
             cf1_u_i.clone(),
             cf1_cmT.clone(),
@@ -481,8 +479,7 @@ where
 
         // same for cf2_r:
         let cf2_r_bits = CycleFoldChallengeGadget::<C2, GC2>::get_challenge_gadget(
-            cs.clone(),
-            &self.poseidon_config,
+            &mut transcript,
             cf1_U_i1.to_native_sponge_field_elements()?,
             cf2_u_i.clone(),
             cf2_cmT.clone(),
@@ -584,6 +581,7 @@ pub mod tests {
     fn test_committed_instance_hash() {
         let mut rng = ark_std::test_rng();
         let poseidon_config = poseidon_canonical_config::<Fr>();
+        let sponge = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         let i = Fr::from(3_u32);
         let z_0 = vec![Fr::from(3_u32)];
@@ -596,7 +594,7 @@ pub mod tests {
         };
 
         // compute the CommittedInstance hash natively
-        let h = ci.hash(&poseidon_config, i, z_0.clone(), z_i.clone());
+        let h = ci.hash(&sponge, i, z_0.clone(), z_i.clone());
 
         let cs = ConstraintSystem::<Fr>::new_ref();
 
@@ -621,6 +619,7 @@ pub mod tests {
     fn test_challenge_gadget() {
         let mut rng = ark_std::test_rng();
         let poseidon_config = poseidon_canonical_config::<Fr>();
+        let mut transcript = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         let u_i = CommittedInstance::<Projective> {
             cmE: Projective::rand(&mut rng),
@@ -638,7 +637,7 @@ pub mod tests {
 
         // compute the challenge natively
         let r_bits = ChallengeGadget::<Projective>::get_challenge_native(
-            &poseidon_config,
+            &mut transcript,
             U_i.clone(),
             u_i.clone(),
             cmT,
@@ -653,6 +652,7 @@ pub mod tests {
             CommittedInstanceVar::<Projective>::new_witness(cs.clone(), || Ok(U_i.clone()))
                 .unwrap();
         let cmTVar = NonNativeAffineVar::<Projective>::new_witness(cs.clone(), || Ok(cmT)).unwrap();
+        let mut transcriptVar = PoseidonSpongeVar::<Fr>::new(cs.clone(), &poseidon_config);
 
         // compute the challenge in-circuit
         let U_iVar_vec = [
@@ -663,8 +663,7 @@ pub mod tests {
         ]
         .concat();
         let r_bitsVar = ChallengeGadget::<Projective>::get_challenge_gadget(
-            cs.clone(),
-            &poseidon_config,
+            &mut transcriptVar,
             U_iVar_vec,
             u_iVar,
             cmTVar,

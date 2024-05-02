@@ -70,9 +70,7 @@ fn nonnative_affine_to_field_elements<C: CurveGroup>(
 }
 
 impl<C: CurveGroup> NonNativeAffineVar<C> {
-    // A wrapper of `point_to_nonnative_limbs_custom_opt` with constraints-focused optimization
-    // type (which is the default optimization type for arkworks' Groth16).
-    // Used for extracting a list of field elements of type `C::ScalarField` from the public input
+    // Extracts a list of field elements of type `C::ScalarField` from the public input
     // `p`, in exactly the same way as how `NonNativeAffineVar` is represented as limbs of type
     // `FpVar` in-circuit.
     #[allow(clippy::type_complexity)]

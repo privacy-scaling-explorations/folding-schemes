@@ -261,9 +261,10 @@ pub mod tests {
                 .unwrap();
 
         let poseidon_config = poseidon_canonical_config::<C::ScalarField>();
+        let mut transcript = PoseidonSponge::<C::ScalarField>::new(&poseidon_config);
 
         let r_bits = ChallengeGadget::<C>::get_challenge_native(
-            &poseidon_config,
+            &mut transcript,
             ci1.clone(),
             ci2.clone(),
             cmT,
