@@ -185,7 +185,7 @@ where
     ) -> Result<(NIMFSProof<C>, LCCCS<C>, Witness<C::ScalarField>, Vec<bool>), Error> {
         // absorb instances to transcript
         for U_i in running_instances {
-            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(U_i.C)?;
+            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(U_i.C);
             let v = [
                 C_x,
                 C_y,
@@ -198,7 +198,7 @@ where
             transcript.absorb(&v);
         }
         for u_i in new_instances {
-            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(u_i.C)?;
+            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(u_i.C);
             let v = [C_x, C_y, u_i.x.clone()].concat();
             transcript.absorb(&v);
         }
@@ -296,7 +296,7 @@ where
     ) -> Result<LCCCS<C>, Error> {
         // absorb instances to transcript
         for U_i in running_instances {
-            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(U_i.C)?;
+            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(U_i.C);
             let v = [
                 C_x,
                 C_y,
@@ -309,7 +309,7 @@ where
             transcript.absorb(&v);
         }
         for u_i in new_instances {
-            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(u_i.C)?;
+            let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(u_i.C);
             let v = [C_x, C_y, u_i.x.clone()].concat();
             transcript.absorb(&v);
         }

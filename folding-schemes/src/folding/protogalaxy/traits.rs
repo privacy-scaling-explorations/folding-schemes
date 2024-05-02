@@ -14,7 +14,7 @@ impl<C: CurveGroup<ScalarField: Absorb>> Absorb for CommittedInstance<C> {
     }
 
     fn to_sponge_field_elements<F: PrimeField>(&self, dest: &mut Vec<F>) {
-        let (x, y) = nonnative_affine_to_field_elements(self.phi).unwrap();
+        let (x, y) = nonnative_affine_to_field_elements(self.phi);
         x.to_sponge_field_elements(dest);
         y.to_sponge_field_elements(dest);
         self.betas.to_sponge_field_elements(dest);

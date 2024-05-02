@@ -57,14 +57,14 @@ impl<C: CurveGroup> ToConstraintFieldGadget<C::ScalarField> for NonNativeAffineV
 #[allow(clippy::type_complexity)]
 pub fn nonnative_affine_to_field_elements<C: CurveGroup>(
     p: C,
-) -> Result<(Vec<C::ScalarField>, Vec<C::ScalarField>), SynthesisError> {
+) -> (Vec<C::ScalarField>, Vec<C::ScalarField>) {
     let affine = p.into_affine();
     let zero = (&C::BaseField::zero(), &C::BaseField::zero());
     let (x, y) = affine.xy().unwrap_or(zero);
 
     let x = nonnative_field_to_field_elements(x);
     let y = nonnative_field_to_field_elements(y);
-    Ok((x, y))
+    (x, y)
 }
 
 impl<C: CurveGroup> NonNativeAffineVar<C> {
@@ -110,7 +110,7 @@ mod tests {
         let mut rng = ark_std::test_rng();
         let p = Projective::rand(&mut rng);
         let pVar = NonNativeAffineVar::<Projective>::new_witness(cs.clone(), || Ok(p)).unwrap();
-        let (x, y) = nonnative_affine_to_field_elements(p).unwrap();
+        let (x, y) = nonnative_affine_to_field_elements(p);
         assert_eq!(
             pVar.to_constraint_field().unwrap().value().unwrap(),
             [x, y].concat()

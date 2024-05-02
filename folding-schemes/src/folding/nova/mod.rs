@@ -73,8 +73,8 @@ where
         z_0: Vec<C::ScalarField>,
         z_i: Vec<C::ScalarField>,
     ) -> Result<C::ScalarField, Error> {
-        let (cmE_x, cmE_y) = nonnative_affine_to_field_elements::<C>(self.cmE)?;
-        let (cmW_x, cmW_y) = nonnative_affine_to_field_elements::<C>(self.cmW)?;
+        let (cmE_x, cmE_y) = nonnative_affine_to_field_elements::<C>(self.cmE);
+        let (cmW_x, cmW_y) = nonnative_affine_to_field_elements::<C>(self.cmW);
 
         CRH::<C::ScalarField>::evaluate(
             poseidon_config,

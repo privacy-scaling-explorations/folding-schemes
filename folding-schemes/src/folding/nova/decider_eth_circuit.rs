@@ -562,8 +562,8 @@ where
         poseidon_config: &PoseidonConfig<C::ScalarField>,
         U_i: CommittedInstance<C>,
     ) -> Result<(C::ScalarField, C::ScalarField), Error> {
-        let (cmE_x_limbs, cmE_y_limbs) = nonnative_affine_to_field_elements(U_i.cmE)?;
-        let (cmW_x_limbs, cmW_y_limbs) = nonnative_affine_to_field_elements(U_i.cmW)?;
+        let (cmE_x_limbs, cmE_y_limbs) = nonnative_affine_to_field_elements(U_i.cmE);
+        let (cmW_x_limbs, cmW_y_limbs) = nonnative_affine_to_field_elements(U_i.cmW);
 
         let transcript = &mut PoseidonSponge::<C::ScalarField>::new(poseidon_config);
         // compute the KZG challenges, which are computed in-circuit and checked that it matches

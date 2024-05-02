@@ -8,20 +8,16 @@ use ark_ff::{BigInteger, PrimeField};
 use ark_r1cs_std::{boolean::Boolean, fields::fp::FpVar, ToConstraintFieldGadget};
 use ark_relations::r1cs::SynthesisError;
 
-use crate::{
-    folding::circuits::nonnative::affine::{
-        nonnative_affine_to_field_elements, NonNativeAffineVar,
-    },
-    Error,
+use crate::folding::circuits::nonnative::affine::{
+    nonnative_affine_to_field_elements, NonNativeAffineVar,
 };
 
 use super::{Transcript, TranscriptVar};
 
 impl<F: PrimeField + Absorb> Transcript<F> for PoseidonSponge<F> {
-    fn absorb_point<C: CurveGroup<ScalarField = F>>(&mut self, p: &C) -> Result<(), Error> {
-        let (x, y) = nonnative_affine_to_field_elements(*p)?;
+    fn absorb_point<C: CurveGroup<ScalarField = F>>(&mut self, p: &C) {
+        let (x, y) = nonnative_affine_to_field_elements(*p);
         self.absorb(&[x, y].concat());
-        Ok(())
     }
     fn get_challenge(&mut self) -> F {
         let c = self.squeeze_field_elements(1);
@@ -140,7 +136,7 @@ pub mod tests {
         let rng = &mut test_rng();
 
         let p = G1::rand(rng);
-        tr.absorb_point(&p).unwrap();
+        tr.absorb_point(&p);
         let c = tr.get_challenge();
 
         // use 'gadget' transcript

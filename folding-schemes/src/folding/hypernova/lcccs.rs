@@ -137,7 +137,7 @@ where
         z_0: Vec<C::ScalarField>,
         z_i: Vec<C::ScalarField>,
     ) -> Result<C::ScalarField, Error> {
-        let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(self.C)?;
+        let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(self.C);
 
         CRH::<C::ScalarField>::evaluate(
             poseidon_config,

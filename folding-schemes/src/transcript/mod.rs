@@ -1,4 +1,4 @@
-use crate::{folding::circuits::nonnative::affine::NonNativeAffineVar, Error};
+use crate::folding::circuits::nonnative::affine::NonNativeAffineVar;
 use ark_crypto_primitives::sponge::{constraints::CryptographicSpongeVar, CryptographicSponge};
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
@@ -8,7 +8,7 @@ use ark_relations::r1cs::SynthesisError;
 pub mod poseidon;
 
 pub trait Transcript<F: PrimeField>: CryptographicSponge {
-    fn absorb_point<C: CurveGroup<ScalarField = F>>(&mut self, v: &C) -> Result<(), Error>;
+    fn absorb_point<C: CurveGroup<ScalarField = F>>(&mut self, v: &C);
 
     fn get_challenge(&mut self) -> F;
     /// get_challenge_nbits returns a field element of size nbits

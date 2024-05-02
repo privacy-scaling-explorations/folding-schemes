@@ -179,11 +179,11 @@ where
         u_i: CommittedInstance<C>,
         cmT: C,
     ) -> Result<Vec<bool>, SynthesisError> {
-        let (U_cmE_x, U_cmE_y) = nonnative_affine_to_field_elements::<C>(U_i.cmE)?;
-        let (U_cmW_x, U_cmW_y) = nonnative_affine_to_field_elements::<C>(U_i.cmW)?;
-        let (u_cmE_x, u_cmE_y) = nonnative_affine_to_field_elements::<C>(u_i.cmE)?;
-        let (u_cmW_x, u_cmW_y) = nonnative_affine_to_field_elements::<C>(u_i.cmW)?;
-        let (cmT_x, cmT_y) = nonnative_affine_to_field_elements::<C>(cmT)?;
+        let (U_cmE_x, U_cmE_y) = nonnative_affine_to_field_elements::<C>(U_i.cmE);
+        let (U_cmW_x, U_cmW_y) = nonnative_affine_to_field_elements::<C>(U_i.cmW);
+        let (u_cmE_x, u_cmE_y) = nonnative_affine_to_field_elements::<C>(u_i.cmE);
+        let (u_cmW_x, u_cmW_y) = nonnative_affine_to_field_elements::<C>(u_i.cmW);
+        let (cmT_x, cmT_y) = nonnative_affine_to_field_elements::<C>(cmT);
 
         let mut sponge = PoseidonSponge::<C::ScalarField>::new(poseidon_config);
         let input = vec![
