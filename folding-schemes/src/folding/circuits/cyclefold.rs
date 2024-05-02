@@ -11,7 +11,7 @@ use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
     boolean::Boolean,
     eq::EqGadget,
-    fields::{fp::FpVar, FieldVar},
+    fields::fp::FpVar,
     groups::GroupOpsBounds,
     prelude::CurveVar,
     ToConstraintFieldGadget,
@@ -86,21 +86,20 @@ where
         let mut cmE_elems = self.cmE.to_constraint_field()?;
         let mut cmW_elems = self.cmW.to_constraint_field()?;
 
-        let cmE_is_inf = cmE_elems.pop().unwrap();
-        let cmW_is_inf = cmW_elems.pop().unwrap();
-        // Concatenate `cmE_is_inf` and `cmW_is_inf` to save constraints for CRHGadget::evaluate
-        let is_inf = cmE_is_inf.double()? + cmW_is_inf;
+        // See `transcript/poseidon.rs: TranscriptVar::absorb_point` for details
+        // why the last element is unnecessary.
+        cmE_elems.pop();
+        cmW_elems.pop();
 
         Ok([
-            self.u.to_constraint_field()?,
+            self.u.to_native_sponge_field_elements()?,
             self.x
                 .iter()
-                .map(|i| i.to_constraint_field())
+                .map(|i| i.to_native_sponge_field_elements())
                 .collect::<Result<Vec<_>, _>>()?
                 .concat(),
             cmE_elems,
             cmW_elems,
-            vec![is_inf],
         ]
         .concat())
     }

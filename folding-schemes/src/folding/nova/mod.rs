@@ -5,7 +5,7 @@ use ark_crypto_primitives::sponge::{
     Absorb, CryptographicSponge,
 };
 use ark_ec::{AffineRepr, CurveGroup, Group};
-use ark_ff::{BigInteger, Field, PrimeField};
+use ark_ff::{BigInteger, PrimeField};
 use ark_r1cs_std::{groups::GroupOpsBounds, prelude::CurveVar, ToConstraintFieldGadget};
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -78,32 +78,23 @@ impl<C: CurveGroup> AbsorbNonNative<C::BaseField> for CommittedInstance<C>
 where
     <C as ark_ec::CurveGroup>::BaseField: ark_ff::PrimeField + Absorb,
 {
+    // Compatible with the in-circuit `CycleFoldCommittedInstanceVar::to_native_sponge_field_elements`
+    // in `cyclefold.rs`.
     fn to_native_sponge_field_elements(&self, dest: &mut Vec<C::BaseField>) {
         [self.u].to_native_sponge_field_elements(dest);
         self.x.to_native_sponge_field_elements(dest);
-        let (cmE_x, cmE_y, cmE_is_inf) = match self.cmE.into_affine().xy() {
-            Some((&x, &y)) => (x, y, C::BaseField::zero()),
-            None => (
-                C::BaseField::zero(),
-                C::BaseField::zero(),
-                C::BaseField::one(),
-            ),
+        let (cmE_x, cmE_y) = match self.cmE.into_affine().xy() {
+            Some((&x, &y)) => (x, y),
+            None => (C::BaseField::zero(), C::BaseField::zero()),
         };
-        let (cmW_x, cmW_y, cmW_is_inf) = match self.cmW.into_affine().xy() {
-            Some((&x, &y)) => (x, y, C::BaseField::zero()),
-            None => (
-                C::BaseField::zero(),
-                C::BaseField::zero(),
-                C::BaseField::one(),
-            ),
+        let (cmW_x, cmW_y) = match self.cmW.into_affine().xy() {
+            Some((&x, &y)) => (x, y),
+            None => (C::BaseField::zero(), C::BaseField::zero()),
         };
         cmE_x.to_sponge_field_elements(dest);
         cmE_y.to_sponge_field_elements(dest);
         cmW_x.to_sponge_field_elements(dest);
         cmW_y.to_sponge_field_elements(dest);
-        // Concatenate `cmE_is_inf` and `cmW_is_inf` to save constraints for CRHGadget::evaluate in the corresponding circuit
-        let is_inf = cmE_is_inf.double() + cmW_is_inf;
-        is_inf.to_sponge_field_elements(dest);
     }
 }
 

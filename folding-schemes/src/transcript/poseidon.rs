@@ -13,18 +13,14 @@ use ark_relations::r1cs::SynthesisError;
 use super::{AbsorbNonNative, AbsorbNonNativeGadget, Transcript, TranscriptVar};
 
 impl<F: PrimeField + Absorb> Transcript<F> for PoseidonSponge<F> {
+    // Compatible with the in-circuit `TranscriptVar::absorb_point`
     fn absorb_point<C: CurveGroup<BaseField = F>>(&mut self, p: &C) {
-        let (x, y, is_inf) = match p.into_affine().xy() {
-            Some((&x, &y)) => (x, y, C::BaseField::zero()),
-            None => (
-                C::BaseField::zero(),
-                C::BaseField::zero(),
-                C::BaseField::one(),
-            ),
+        let (x, y) = match p.into_affine().xy() {
+            Some((&x, &y)) => (x, y),
+            None => (C::BaseField::zero(), C::BaseField::zero()),
         };
         self.absorb(&x);
         self.absorb(&y);
-        self.absorb(&is_inf);
     }
     fn absorb_nonnative<V: AbsorbNonNative<F>>(&mut self, v: &V) {
         self.absorb(&v.to_native_sponge_field_elements_as_vec());
@@ -54,7 +50,16 @@ impl<F: PrimeField> TranscriptVar<F, PoseidonSponge<F>> for PoseidonSpongeVar<F>
         &mut self,
         v: &GC,
     ) -> Result<(), SynthesisError> {
-        self.absorb(&v.to_constraint_field()?)
+        let mut vec = v.to_constraint_field()?;
+        // The last element in the vector tells whether the point is infinity,
+        // but we can in fact avoid absorbing it without loss of soundness.
+        // This is because the `to_constraint_field` method internally invokes
+        // [`ProjectiveVar::to_afine`](https://github.com/arkworks-rs/r1cs-std/blob/4020fbc22625621baa8125ede87abaeac3c1ca26/src/groups/curves/short_weierstrass/mod.rs#L160-L195),
+        // which guarantees that an infinity point is represented as `(0, 0)`,
+        // but the y-coordinate of a non-infinity point is never 0 (for why, see
+        // https://crypto.stackexchange.com/a/108242 ).
+        vec.pop();
+        self.absorb(&vec)
     }
     fn absorb_nonnative<V: AbsorbNonNativeGadget<F>>(
         &mut self,
