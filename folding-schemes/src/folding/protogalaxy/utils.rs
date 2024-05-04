@@ -32,6 +32,9 @@ pub fn all_powers<F: PrimeField>(a: F, n: usize) -> Vec<F> {
 
 /// The in-circuit version of `all_powers`
 pub fn all_powers_var<F: PrimeField>(a: FpVar<F>, n: usize) -> Vec<FpVar<F>> {
+    if n == 0 {
+        return vec![];
+    }
     let mut r = vec![FpVar::zero(); n];
     r[0] = FpVar::one();
     for i in 1..n {
