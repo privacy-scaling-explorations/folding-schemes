@@ -8,12 +8,15 @@ use ark_relations::r1cs::SynthesisError;
 
 pub mod poseidon;
 
+/// An interface for objects that can be absorbed by a `Transcript`.
+///
+/// Matches `Absorb` in `ark-crypto-primitives`.
 pub trait AbsorbNonNative<F: PrimeField> {
-    /// Converts the object into field elements that can be absorbed by a `CryptographicSponge`.
+    /// Converts the object into field elements that can be absorbed by a `Transcript`.
     /// Append the list to `dest`
     fn to_native_sponge_field_elements(&self, dest: &mut Vec<F>);
 
-    /// Converts the object into field elements that can be absorbed by a `CryptographicSponge`.
+    /// Converts the object into field elements that can be absorbed by a `Transcript`.
     /// Return the list as `Vec`
     fn to_native_sponge_field_elements_as_vec(&self) -> Vec<F> {
         let mut result = Vec::new();
@@ -22,8 +25,12 @@ pub trait AbsorbNonNative<F: PrimeField> {
     }
 }
 
+/// An interface for objects that can be absorbed by a `TranscriptVar` whose constraint field
+/// is `F`.
+///
+/// Matches `AbsorbGadget` in `ark-crypto-primitives`.
 pub trait AbsorbNonNativeGadget<F: PrimeField> {
-    /// Converts the object into field elements that can be absorbed by a `CryptographicSpongeVar`.
+    /// Converts the object into field elements that can be absorbed by a `TranscriptVar`.
     fn to_native_sponge_field_elements(&self) -> Result<Vec<FpVar<F>>, SynthesisError>;
 }
 
