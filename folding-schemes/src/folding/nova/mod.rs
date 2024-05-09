@@ -53,7 +53,10 @@ impl<C: CurveGroup> CommittedInstance<C> {
     }
 }
 
-impl<C: CurveGroup<ScalarField: Absorb>> Absorb for CommittedInstance<C> {
+impl<C: CurveGroup> Absorb for CommittedInstance<C>
+where
+    C::ScalarField: Absorb,
+{
     fn to_sponge_bytes(&self, _dest: &mut Vec<u8>) {
         // This is never called
         unimplemented!()
