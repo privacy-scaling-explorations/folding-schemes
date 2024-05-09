@@ -1,10 +1,6 @@
 /// Contains [CycleFold](https://eprint.iacr.org/2023/1192.pdf) related circuits and functions that
 /// are shared across the different folding schemes
-use ark_crypto_primitives::sponge::{
-    constraints::CryptographicSpongeVar,
-    poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge},
-    Absorb, CryptographicSponge,
-};
+use ark_crypto_primitives::sponge::{poseidon::PoseidonSponge, Absorb, CryptographicSponge};
 use ark_ec::{CurveGroup, Group};
 use ark_ff::{BigInteger, PrimeField};
 use ark_r1cs_std::{
@@ -118,9 +114,9 @@ where
     /// parameters, so they can be reused in other gadgets avoiding recalculating (reconstraining)
     /// them.
     #[allow(clippy::type_complexity)]
-    pub fn hash(
+    pub fn hash<S: CryptographicSponge, T: TranscriptVar<CF2<C>, S>>(
         self,
-        sponge: &PoseidonSpongeVar<CF2<C>>,
+        sponge: &T,
     ) -> Result<(FpVar<CF2<C>>, Vec<FpVar<CF2<C>>>), SynthesisError> {
         let mut sponge = sponge.clone();
         let U_vec = self.to_native_sponge_field_elements()?;
@@ -246,8 +242,8 @@ where
     <C as CurveGroup>::BaseField: Absorb,
     for<'a> &'a GC: GroupOpsBounds<'a, C, GC>,
 {
-    pub fn get_challenge_native(
-        transcript: &mut PoseidonSponge<C::BaseField>,
+    pub fn get_challenge_native<T: Transcript<C::BaseField>>(
+        transcript: &mut T,
         U_i: CommittedInstance<C>,
         u_i: CommittedInstance<C>,
         cmT: C,
@@ -259,8 +255,8 @@ where
     }
 
     // compatible with the native get_challenge_native
-    pub fn get_challenge_gadget(
-        transcript: &mut PoseidonSpongeVar<C::BaseField>,
+    pub fn get_challenge_gadget<S: CryptographicSponge, T: TranscriptVar<C::BaseField, S>>(
+        transcript: &mut T,
         U_i_vec: Vec<FpVar<C::BaseField>>,
         u_i: CycleFoldCommittedInstanceVar<C, GC>,
         cmT: GC,
@@ -338,7 +334,7 @@ where
 /// scheme struct because it is used both by Nova & HyperNova's CycleFold.
 #[allow(clippy::type_complexity)]
 pub fn fold_cyclefold_circuit<C1, GC1, C2, GC2, FC, CS1, CS2>(
-    transcript: &mut PoseidonSponge<C1::ScalarField>,
+    transcript: &mut impl Transcript<C1::ScalarField>,
     cf_r1cs: R1CS<C2::ScalarField>,
     cf_cs_params: CS2::ProverParams,
     cf_W_i: Witness<C2>,           // witness of the running instance
@@ -416,6 +412,9 @@ where
 #[cfg(test)]
 pub mod tests {
     use ark_bn254::{constraints::GVar, Fq, Fr, G1Projective as Projective};
+    use ark_crypto_primitives::sponge::{
+        constraints::CryptographicSpongeVar, poseidon::constraints::PoseidonSpongeVar,
+    };
     use ark_r1cs_std::R1CSVar;
     use ark_std::UniformRand;
 

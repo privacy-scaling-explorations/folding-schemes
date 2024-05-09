@@ -107,9 +107,9 @@ where
     /// nova/circuits.rs::CommittedInstanceVar.hash.
     /// Returns `H(i, z_0, z_i, U_i)`, where `i` can be `i` but also `i+1`, and `U_i` is the
     /// `CommittedInstance`.
-    pub fn hash(
+    pub fn hash<T: Transcript<C::ScalarField>>(
         &self,
-        sponge: &PoseidonSponge<C::ScalarField>,
+        sponge: &T,
         i: C::ScalarField,
         z_0: Vec<C::ScalarField>,
         z_i: Vec<C::ScalarField>,
@@ -130,7 +130,7 @@ where
     /// hash_cyclefold implements the committed instance hash compatible with the gadget implemented in
     /// nova/cyclefold.rs::CycleFoldCommittedInstanceVar.hash.
     /// Returns `H(U_i)`, where `U_i` is the `CommittedInstance` for CycleFold.
-    pub fn hash_cyclefold(&self, sponge: &PoseidonSponge<C::BaseField>) -> C::BaseField {
+    pub fn hash_cyclefold<T: Transcript<C::BaseField>>(&self, sponge: &T) -> C::BaseField {
         let mut sponge = sponge.clone();
         sponge.absorb_nonnative(self);
         sponge.squeeze_field_elements(1)[0]
@@ -665,9 +665,9 @@ where
 {
     // folds the given cyclefold circuit and its instances
     #[allow(clippy::type_complexity)]
-    fn fold_cyclefold_circuit(
+    fn fold_cyclefold_circuit<T: Transcript<C1::ScalarField>>(
         &self,
-        transcript: &mut PoseidonSponge<C1::ScalarField>,
+        transcript: &mut T,
         cf_W_i: Witness<C2>,           // witness of the running instance
         cf_U_i: CommittedInstance<C2>, // running instance
         cf_u_i_x: Vec<C2::ScalarField>,

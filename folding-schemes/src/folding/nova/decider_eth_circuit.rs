@@ -405,8 +405,7 @@ where
         // `sponge` is for digest computation.
         let sponge = PoseidonSpongeVar::<C1::ScalarField>::new(cs.clone(), &self.poseidon_config);
         // `transcript` is for challenge generation.
-        let mut transcript =
-            PoseidonSpongeVar::<C1::ScalarField>::new(cs.clone(), &self.poseidon_config);
+        let mut transcript = sponge.clone();
 
         // 1. check RelaxedR1CS of U_{i+1}
         let z_U1: Vec<FpVar<CF1<C1>>> =
@@ -558,8 +557,8 @@ where
     <C as CurveGroup>::BaseField: PrimeField,
     C::ScalarField: Absorb,
 {
-    pub fn get_challenges_native(
-        transcript: &mut PoseidonSponge<C::ScalarField>,
+    pub fn get_challenges_native<T: Transcript<C::ScalarField>>(
+        transcript: &mut T,
         U_i: CommittedInstance<C>,
     ) -> (C::ScalarField, C::ScalarField) {
         // compute the KZG challenges, which are computed in-circuit and checked that it matches
@@ -572,8 +571,8 @@ where
         (challenge_W, challenge_E)
     }
     // compatible with the native get_challenges_native
-    pub fn get_challenges_gadget(
-        transcript: &mut PoseidonSpongeVar<CF1<C>>,
+    pub fn get_challenges_gadget<S: CryptographicSponge, T: TranscriptVar<CF1<C>, S>>(
+        transcript: &mut T,
         U_i: CommittedInstanceVar<C>,
     ) -> Result<(FpVar<C::ScalarField>, FpVar<C::ScalarField>), SynthesisError> {
         transcript.absorb(&U_i.cmW.to_constraint_field()?)?;
