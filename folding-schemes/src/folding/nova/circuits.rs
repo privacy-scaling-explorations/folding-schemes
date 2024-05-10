@@ -24,7 +24,8 @@ use super::{CommittedInstance, NovaCycleFoldConfig};
 use crate::constants::NOVA_N_BITS_RO;
 use crate::folding::circuits::{
     cyclefold::{
-        CycleFoldChallengeGadget, CycleFoldCommittedInstanceVar, CycleFoldConfig, NIFSFullGadget,
+        CycleFoldChallengeGadget, CycleFoldCommittedInstance, CycleFoldCommittedInstanceVar,
+        CycleFoldConfig, NIFSFullGadget,
     },
     nonnative::{affine::NonNativeAffineVar, uint::NonNativeUintVar},
     CF1, CF2,
@@ -239,9 +240,9 @@ pub struct AugmentedFCircuit<
     // cyclefold verifier on C1
     // Here 'cf1, cf2' are for each of the CycleFold circuits, corresponding to the fold of cmW and
     // cmE respectively
-    pub cf1_u_i_cmW: Option<C2>,               // input
-    pub cf2_u_i_cmW: Option<C2>,               // input
-    pub cf_U_i: Option<CommittedInstance<C2>>, // input
+    pub cf1_u_i_cmW: Option<C2>,                        // input
+    pub cf2_u_i_cmW: Option<C2>,                        // input
+    pub cf_U_i: Option<CycleFoldCommittedInstance<C2>>, // input
     pub cf1_cmT: Option<C2>,
     pub cf2_cmT: Option<C2>,
     pub cf_x: Option<CF1<C1>>, // public input (u_{i+1}.x[1])
@@ -326,7 +327,7 @@ where
         let cmT =
             NonNativeAffineVar::new_witness(cs.clone(), || Ok(self.cmT.unwrap_or_else(C1::zero)))?;
 
-        let cf_u_dummy = CommittedInstance::dummy(NovaCycleFoldConfig::<C1>::IO_LEN);
+        let cf_u_dummy = CycleFoldCommittedInstance::dummy(NovaCycleFoldConfig::<C1>::IO_LEN);
         let cf_U_i = CycleFoldCommittedInstanceVar::<C2, GC2>::new_witness(cs.clone(), || {
             Ok(self.cf_U_i.unwrap_or(cf_u_dummy.clone()))
         })?;
@@ -527,7 +528,7 @@ pub mod tests {
         assert_eq!(ciVar.x.value().unwrap(), ci.x);
         // the values cmE and cmW are checked in the CycleFold's circuit
         // CommittedInstanceInCycleFoldVar in
-        // nova::cyclefold::tests::test_committed_instance_cyclefold_var
+        // cyclefold::tests::test_committed_instance_cyclefold_var
     }
 
     #[test]

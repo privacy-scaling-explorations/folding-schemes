@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use super::{CommittedInstance, Witness};
 use crate::ccs::r1cs::R1CS;
 use crate::commitment::CommitmentScheme;
+use crate::folding::circuits::cyclefold::{CycleFoldCommittedInstance, CycleFoldWitness};
 use crate::transcript::Transcript;
 use crate::utils::vec::{hadamard, mat_vec_mul, vec_add, vec_scalar_mul, vec_sub};
 use crate::Error;
@@ -109,10 +110,10 @@ where
     pub fn compute_cyclefold_cmT(
         cs_prover_params: &CS::ProverParams,
         r1cs: &R1CS<C::ScalarField>, // R1CS over C2.Fr=C1.Fq (here C=C2)
-        w1: &Witness<C>,
-        ci1: &CommittedInstance<C>,
-        w2: &Witness<C>,
-        ci2: &CommittedInstance<C>,
+        w1: &CycleFoldWitness<C>,
+        ci1: &CycleFoldCommittedInstance<C>,
+        w2: &CycleFoldWitness<C>,
+        ci2: &CycleFoldCommittedInstance<C>,
     ) -> Result<(Vec<C::ScalarField>, C), Error>
     where
         <C as ark_ec::CurveGroup>::BaseField: ark_ff::PrimeField,
