@@ -19,7 +19,7 @@ use ark_std::fmt::Debug;
 use ark_std::Zero;
 use core::{borrow::Borrow, marker::PhantomData};
 
-use super::{nonnative::uint::NonNativeUintVar, CF2};
+use super::{nonnative::uint::NonNativeUintVar, CF1, CF2};
 use crate::ccs::r1cs::{extract_w_x, R1CS};
 use crate::commitment::CommitmentScheme;
 use crate::constants::NOVA_N_BITS_RO;
@@ -178,25 +178,29 @@ where
     for<'a> &'a GC: GroupOpsBounds<'a, C, GC>,
 {
     pub fn fold_committed_instance(
-        // assumes that r_bits is equal to r_nonnat just that in a different format
         r_bits: Vec<Boolean<CF2<C>>>,
-        r_nonnat: NonNativeUintVar<CF2<C>>,
         cmT: GC,
         ci1: CycleFoldCommittedInstanceVar<C, GC>,
         // ci2 is assumed to be always with cmE=0, u=1 (checks done previous to this method)
         ci2: CycleFoldCommittedInstanceVar<C, GC>,
     ) -> Result<CycleFoldCommittedInstanceVar<C, GC>, SynthesisError> {
+        // r_nonnat is equal to r_bits just that in a different format
+        let r_nonnat = {
+            let mut bits = r_bits.clone();
+            bits.resize(CF1::<C>::MODULUS_BIT_SIZE as usize, Boolean::FALSE);
+            NonNativeUintVar::from(&bits)
+        };
         Ok(CycleFoldCommittedInstanceVar {
             cmE: cmT.scalar_mul_le(r_bits.iter())? + ci1.cmE,
             cmW: ci1.cmW + ci2.cmW.scalar_mul_le(r_bits.iter())?,
-            u: ci1.u.add_no_align(&r_nonnat).modulo::<C::ScalarField>()?,
+            u: ci1.u.add_no_align(&r_nonnat).modulo::<CF1<C>>()?,
             x: ci1
                 .x
                 .iter()
                 .zip(ci2.x)
                 .map(|(a, b)| {
                     a.add_no_align(&r_nonnat.mul_no_align(&b)?)
-                        .modulo::<C::ScalarField>()
+                        .modulo::<CF1<C>>()
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         })
@@ -205,14 +209,13 @@ where
     pub fn verify(
         // assumes that r_bits is equal to r_nonnat just that in a different format
         r_bits: Vec<Boolean<CF2<C>>>,
-        r_nonnat: NonNativeUintVar<CF2<C>>,
         cmT: GC,
         ci1: CycleFoldCommittedInstanceVar<C, GC>,
         // ci2 is assumed to be always with cmE=0, u=1 (checks done previous to this method)
         ci2: CycleFoldCommittedInstanceVar<C, GC>,
         ci3: CycleFoldCommittedInstanceVar<C, GC>,
     ) -> Result<(), SynthesisError> {
-        let ci = Self::fold_committed_instance(r_bits, r_nonnat, cmT, ci1, ci2)?;
+        let ci = Self::fold_committed_instance(r_bits, cmT, ci1, ci2)?;
 
         ci.cmE.enforce_equal(&ci3.cmE)?;
         ci.u.enforce_equal_unaligned(&ci3.u)?;
@@ -517,11 +520,10 @@ pub mod tests {
 
     #[test]
     fn test_nifs_full_gadget() {
-        let (_, _, _, _, ci1, _, ci2, _, ci3, _, cmT, r_bits, r_Fr) = prepare_simple_fold_inputs();
+        let (_, _, _, _, ci1, _, ci2, _, ci3, _, cmT, r_bits, _) = prepare_simple_fold_inputs();
 
         let cs = ConstraintSystem::<Fq>::new_ref();
 
-        let r_nonnatVar = NonNativeUintVar::<Fq>::new_witness(cs.clone(), || Ok(r_Fr)).unwrap();
         let r_bitsVar = Vec::<Boolean<Fq>>::new_witness(cs.clone(), || Ok(r_bits)).unwrap();
 
         let ci1Var =
@@ -541,15 +543,8 @@ pub mod tests {
             .unwrap();
         let cmTVar = GVar::new_witness(cs.clone(), || Ok(cmT)).unwrap();
 
-        NIFSFullGadget::<Projective, GVar>::verify(
-            r_bitsVar,
-            r_nonnatVar,
-            cmTVar,
-            ci1Var,
-            ci2Var,
-            ci3Var,
-        )
-        .unwrap();
+        NIFSFullGadget::<Projective, GVar>::verify(r_bitsVar, cmTVar, ci1Var, ci2Var, ci3Var)
+            .unwrap();
         assert!(cs.is_satisfied().unwrap());
     }
 

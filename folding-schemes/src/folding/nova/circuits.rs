@@ -462,16 +462,9 @@ where
             cf1_u_i.clone(),
             cf1_cmT.clone(),
         )?;
-        // Convert cf1_r_bits to a `NonNativeFieldVar`
-        let cf1_r_nonnat = {
-            let mut bits = cf1_r_bits.clone();
-            bits.resize(C1::BaseField::MODULUS_BIT_SIZE as usize, Boolean::FALSE);
-            NonNativeUintVar::from(&bits)
-        };
         // Fold cf1_u_i & cf_U_i into cf1_U_{i+1}
         let cf1_U_i1 = NIFSFullGadget::<C2, GC2>::fold_committed_instance(
             cf1_r_bits,
-            cf1_r_nonnat,
             cf1_cmT,
             cf_U_i,
             cf1_u_i,
@@ -484,14 +477,8 @@ where
             cf2_u_i.clone(),
             cf2_cmT.clone(),
         )?;
-        let cf2_r_nonnat = {
-            let mut bits = cf2_r_bits.clone();
-            bits.resize(C1::BaseField::MODULUS_BIT_SIZE as usize, Boolean::FALSE);
-            NonNativeUintVar::from(&bits)
-        };
         let cf_U_i1 = NIFSFullGadget::<C2, GC2>::fold_committed_instance(
             cf2_r_bits,
-            cf2_r_nonnat,
             cf2_cmT,
             cf1_U_i1, // the output from NIFS.V(cf1_r, cf_U, cfE_u)
             cf2_u_i,
