@@ -464,10 +464,7 @@ where
         )?;
         // Fold cf1_u_i & cf_U_i into cf1_U_{i+1}
         let cf1_U_i1 = NIFSFullGadget::<C2, GC2>::fold_committed_instance(
-            cf1_r_bits,
-            cf1_cmT,
-            cf_U_i,
-            cf1_u_i,
+            cf1_r_bits, cf1_cmT, cf_U_i, cf1_u_i,
         )?;
 
         // same for cf2_r:
@@ -478,9 +475,7 @@ where
             cf2_cmT.clone(),
         )?;
         let cf_U_i1 = NIFSFullGadget::<C2, GC2>::fold_committed_instance(
-            cf2_r_bits,
-            cf2_cmT,
-            cf1_U_i1, // the output from NIFS.V(cf1_r, cf_U, cfE_u)
+            cf2_r_bits, cf2_cmT, cf1_U_i1, // the output from NIFS.V(cf1_r, cf_U, cfE_u)
             cf2_u_i,
         )?;
 

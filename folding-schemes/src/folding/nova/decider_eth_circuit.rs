@@ -22,14 +22,17 @@ use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, Namespace,
 use ark_std::{log2, Zero};
 use core::{borrow::Borrow, marker::PhantomData};
 
-use super::{circuits::ChallengeGadget, nifs::NIFS};
+use super::{
+    circuits::{ChallengeGadget, CommittedInstanceVar},
+    nifs::NIFS,
+    CommittedInstance, Nova, Witness,
+};
 use crate::ccs::r1cs::R1CS;
 use crate::commitment::{pedersen::Params as PedersenParams, CommitmentScheme};
 use crate::folding::circuits::{
     nonnative::{affine::NonNativeAffineVar, uint::NonNativeUintVar},
     CF1, CF2,
 };
-use crate::folding::nova::{circuits::CommittedInstanceVar, CommittedInstance, Nova, Witness};
 use crate::frontend::FCircuit;
 use crate::transcript::{Transcript, TranscriptVar};
 use crate::utils::{

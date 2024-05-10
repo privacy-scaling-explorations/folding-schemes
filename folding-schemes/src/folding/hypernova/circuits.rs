@@ -755,12 +755,8 @@ where
             cf_cmT.clone(),
         )?;
         // Fold cf1_u_i & cf_U_i into cf1_U_{i+1}
-        let cf_U_i1 = NIFSFullGadget::<C2, GC2>::fold_committed_instance(
-            cf_r_bits,
-            cf_cmT,
-            cf_U_i,
-            cf_u_i,
-        )?;
+        let cf_U_i1 =
+            NIFSFullGadget::<C2, GC2>::fold_committed_instance(cf_r_bits, cf_cmT, cf_U_i, cf_u_i)?;
 
         // Back to Primary Part
         // P.4.b compute and check the second output of F'
