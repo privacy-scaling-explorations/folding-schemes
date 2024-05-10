@@ -21,7 +21,7 @@ use ark_std::{fmt::Debug, One, Zero};
 use core::{borrow::Borrow, marker::PhantomData};
 
 use super::{CommittedInstance, NovaCycleFoldConfig};
-use crate::constants::N_BITS_RO;
+use crate::constants::NOVA_N_BITS_RO;
 use crate::folding::circuits::{
     cyclefold::{
         CycleFoldChallengeGadget, CycleFoldCommittedInstanceVar, CycleFoldConfig, NIFSFullGadget,
@@ -192,7 +192,7 @@ where
         transcript.absorb(&U_i);
         transcript.absorb(&u_i);
         transcript.absorb_nonnative(&cmT);
-        transcript.squeeze_bits(N_BITS_RO)
+        transcript.squeeze_bits(NOVA_N_BITS_RO)
     }
 
     // compatible with the native get_challenge_native
@@ -205,7 +205,7 @@ where
         transcript.absorb(&U_i_vec)?;
         transcript.absorb(&u_i)?;
         transcript.absorb_nonnative(&cmT)?;
-        transcript.squeeze_bits(N_BITS_RO)
+        transcript.squeeze_bits(NOVA_N_BITS_RO)
     }
 }
 

@@ -26,7 +26,7 @@ use crate::Error;
 use crate::FoldingScheme;
 use crate::{
     ccs::r1cs::{extract_r1cs, extract_w_x, R1CS},
-    constants::N_BITS_RO,
+    constants::NOVA_N_BITS_RO,
 };
 
 pub mod circuits;
@@ -45,7 +45,7 @@ struct NovaCycleFoldConfig<C: CurveGroup> {
 }
 
 impl<C: CurveGroup> CycleFoldConfig for NovaCycleFoldConfig<C> {
-    const N_BITS_RO: usize = N_BITS_RO;
+    const N_BITS_RO: usize = NOVA_N_BITS_RO;
     type C = C;
     type F = C::BaseField;
 }

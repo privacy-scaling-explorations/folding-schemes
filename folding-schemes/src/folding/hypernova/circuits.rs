@@ -47,7 +47,7 @@ use crate::{
     ccs::{r1cs::extract_r1cs, CCS},
     transcript::TranscriptVar,
 };
-use crate::{constants::N_BITS_RO, folding::circuits::cyclefold::CycleFoldConfig};
+use crate::{constants::NOVA_N_BITS_RO, folding::circuits::cyclefold::CycleFoldConfig};
 
 /// Committed CCS instance
 #[derive(Debug, Clone)]
@@ -310,7 +310,7 @@ where
         let rho_scalar_raw = C::ScalarField::from_le_bytes_mod_order(b"rho");
         let rho_scalar: FpVar<CF1<C>> = FpVar::<CF1<C>>::new_constant(cs.clone(), rho_scalar_raw)?;
         transcript.absorb(&rho_scalar)?;
-        let rho_bits: Vec<Boolean<CF1<C>>> = transcript.get_challenge_nbits(N_BITS_RO)?;
+        let rho_bits: Vec<Boolean<CF1<C>>> = transcript.get_challenge_nbits(NOVA_N_BITS_RO)?;
         let rho = Boolean::le_bits_to_fp_var(&rho_bits)?;
 
         // return the folded instance, together with the rho_bits so they can be used in other

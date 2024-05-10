@@ -226,7 +226,7 @@ pub mod tests {
 
     #[test]
     fn test_transcript_and_transcriptvar_nbits() {
-        let nbits = crate::constants::N_BITS_RO;
+        let nbits = crate::constants::NOVA_N_BITS_RO;
 
         // use 'native' transcript
         let config = poseidon_canonical_config::<Fq>();

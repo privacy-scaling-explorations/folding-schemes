@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 /// Implements the scheme described in [HyperNova](https://eprint.iacr.org/2023/573.pdf)
-use crate::{ccs::CCS, constants::N_BITS_RO};
+use crate::{ccs::CCS, constants::NOVA_N_BITS_RO};
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 
@@ -18,7 +18,7 @@ struct HyperNovaCycleFoldConfig<C: CurveGroup> {
 }
 
 impl<C: CurveGroup> CycleFoldConfig for HyperNovaCycleFoldConfig<C> {
-    const N_BITS_RO: usize = N_BITS_RO;
+    const N_BITS_RO: usize = NOVA_N_BITS_RO;
     type C = C;
     type F = C::BaseField;
 }
