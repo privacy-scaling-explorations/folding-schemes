@@ -1,4 +1,4 @@
-use super::{circuits::AugmentedFCircuit, Nova, ProverParams};
+use super::{circuits::AugmentedFCircuit, Nova, NovaCycleFoldCircuit, ProverParams};
 pub use super::{CommittedInstance, Witness};
 pub use crate::folding::circuits::{cyclefold::CycleFoldCircuit, CF2};
 use crate::{
@@ -130,7 +130,7 @@ where
         let cs2 = ConstraintSystem::<C1::BaseField>::new_ref();
         let augmented_F_circuit =
             AugmentedFCircuit::<C1, C2, GC2, FC>::empty(&poseidon_config, f_circuit.clone());
-        let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty();
+        let cf_circuit = NovaCycleFoldCircuit::<C1, GC1>::empty();
 
         augmented_F_circuit
             .generate_constraints(cs.clone())

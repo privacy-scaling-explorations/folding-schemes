@@ -14,15 +14,20 @@ use ark_std::{One, Zero};
 use core::marker::PhantomData;
 use std::usize;
 
-use crate::ccs::r1cs::{extract_r1cs, extract_w_x, R1CS};
 use crate::commitment::CommitmentScheme;
-use crate::folding::circuits::cyclefold::{fold_cyclefold_circuit, CycleFoldCircuit};
+use crate::folding::circuits::cyclefold::{
+    fold_cyclefold_circuit, CycleFoldCircuit, CycleFoldConfig,
+};
 use crate::folding::circuits::CF2;
 use crate::frontend::FCircuit;
 use crate::transcript::{AbsorbNonNative, Transcript};
 use crate::utils::vec::is_zero_vec;
 use crate::Error;
 use crate::FoldingScheme;
+use crate::{
+    ccs::r1cs::{extract_r1cs, extract_w_x, R1CS},
+    constants::N_BITS_RO,
+};
 
 pub mod circuits;
 pub mod decider_eth;
@@ -30,9 +35,22 @@ pub mod decider_eth_circuit;
 pub mod nifs;
 pub mod serialize;
 pub mod traits;
+
 use circuits::{AugmentedFCircuit, ChallengeGadget};
 use nifs::NIFS;
 use traits::NovaR1CS;
+
+struct NovaCycleFoldConfig<C: CurveGroup> {
+    _c: PhantomData<C>,
+}
+
+impl<C: CurveGroup> CycleFoldConfig for NovaCycleFoldConfig<C> {
+    const N_BITS_RO: usize = N_BITS_RO;
+    type C = C;
+    type F = C::BaseField;
+}
+
+type NovaCycleFoldCircuit<C, GC> = CycleFoldCircuit<NovaCycleFoldConfig<C>, GC>;
 
 #[derive(Debug, Clone, Eq, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct CommittedInstance<C: CurveGroup> {
@@ -292,7 +310,7 @@ where
 
         let augmented_F_circuit =
             AugmentedFCircuit::<C1, C2, GC2, FC>::empty(&pp.poseidon_config, F.clone());
-        let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty();
+        let cf_circuit = NovaCycleFoldCircuit::<C1, GC1>::empty();
 
         augmented_F_circuit.generate_constraints(cs.clone())?;
         cs.finalize();
@@ -449,14 +467,14 @@ where
             ]
             .concat();
 
-            let cfW_circuit = CycleFoldCircuit::<C1, GC1> {
+            let cfW_circuit = NovaCycleFoldCircuit::<C1, GC1> {
                 _gc: PhantomData,
                 r_bits: Some(r_bits.clone()),
                 p1: Some(self.U_i.clone().cmW),
                 p2: Some(self.u_i.clone().cmW),
                 x: Some(cfW_u_i_x.clone()),
             };
-            let cfE_circuit = CycleFoldCircuit::<C1, GC1> {
+            let cfE_circuit = NovaCycleFoldCircuit::<C1, GC1> {
                 _gc: PhantomData,
                 r_bits: Some(r_bits.clone()),
                 p1: Some(self.U_i.clone().cmE),
@@ -674,7 +692,7 @@ where
         cf_W_i: Witness<C2>,           // witness of the running instance
         cf_U_i: CommittedInstance<C2>, // running instance
         cf_u_i_x: Vec<C2::ScalarField>,
-        cf_circuit: CycleFoldCircuit<C1, GC1>,
+        cf_circuit: NovaCycleFoldCircuit<C1, GC1>,
     ) -> Result<
         (
             Witness<C2>,
@@ -686,7 +704,7 @@ where
         ),
         Error,
     > {
-        fold_cyclefold_circuit::<C1, GC1, C2, GC2, FC, CS1, CS2>(
+        fold_cyclefold_circuit::<NovaCycleFoldConfig<C1>, C1, GC1, C2, GC2, FC, CS1, CS2>(
             transcript,
             self.cf_r1cs.clone(),
             self.cf_cs_params.clone(),
@@ -732,7 +750,7 @@ where
 {
     let augmented_F_circuit =
         AugmentedFCircuit::<C1, C2, GC2, FC>::empty(poseidon_config, F_circuit);
-    let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty();
+    let cf_circuit = NovaCycleFoldCircuit::<C1, GC1>::empty();
     let r1cs = get_r1cs_from_cs::<C1::ScalarField>(augmented_F_circuit)?;
     let cf_r1cs = get_r1cs_from_cs::<C2::ScalarField>(cf_circuit)?;
     Ok((r1cs, cf_r1cs))

@@ -26,12 +26,11 @@ use super::{
     cccs::CCCS,
     lcccs::LCCCS,
     nimfs::{NIMFSProof, NIMFS},
-    Witness,
+    HyperNovaCycleFoldConfig, Witness,
 };
-use crate::constants::N_BITS_RO;
 use crate::folding::{
     circuits::cyclefold::{
-        CycleFoldChallengeGadget, CycleFoldCommittedInstanceVar, NIFSFullGadget, CF_IO_LEN,
+        CycleFoldChallengeGadget, CycleFoldCommittedInstanceVar, NIFSFullGadget,
     },
     circuits::{
         nonnative::{affine::NonNativeAffineVar, uint::NonNativeUintVar},
@@ -48,6 +47,7 @@ use crate::{
     ccs::{r1cs::extract_r1cs, CCS},
     transcript::TranscriptVar,
 };
+use crate::{constants::N_BITS_RO, folding::circuits::cyclefold::CycleFoldConfig};
 
 /// Committed CCS instance
 #[derive(Debug, Clone)]
@@ -655,7 +655,7 @@ where
             Ok(self.nimfs_proof.unwrap_or(nimfs_proof_dummy))
         })?;
 
-        let cf_u_dummy = CommittedInstance::dummy(CF_IO_LEN);
+        let cf_u_dummy = CommittedInstance::dummy(HyperNovaCycleFoldConfig::<C1>::IO_LEN);
         let cf_U_i = CycleFoldCommittedInstanceVar::<C2, GC2>::new_witness(cs.clone(), || {
             Ok(self.cf_U_i.unwrap_or(cf_u_dummy.clone()))
         })?;
@@ -801,8 +801,11 @@ mod tests {
         },
         commitment::{pedersen::Pedersen, CommitmentScheme},
         folding::{
-            circuits::cyclefold::{fold_cyclefold_circuit, CycleFoldCircuit},
-            hypernova::utils::{compute_c, compute_sigmas_thetas},
+            circuits::cyclefold::fold_cyclefold_circuit,
+            hypernova::{
+                utils::{compute_c, compute_sigmas_thetas},
+                HyperNovaCycleFoldCircuit,
+            },
             nova::{get_cm_coordinates, traits::NovaR1CS, Witness as NovaWitness},
         },
         frontend::tests::CubicFCircuit,
@@ -1063,7 +1066,7 @@ mod tests {
 
         // CycleFold circuit
         let cs2 = ConstraintSystem::<Fq>::new_ref();
-        let cf_circuit = CycleFoldCircuit::<Projective, GVar>::empty();
+        let cf_circuit = HyperNovaCycleFoldCircuit::<Projective, GVar>::empty();
         cf_circuit.generate_constraints(cs2.clone()).unwrap();
         cs2.finalize();
         let cs2 = cs2
@@ -1165,7 +1168,7 @@ mod tests {
                 ]
                 .concat();
 
-                let cf_circuit = CycleFoldCircuit::<Projective, GVar> {
+                let cf_circuit = HyperNovaCycleFoldCircuit::<Projective, GVar> {
                     _gc: PhantomData,
                     r_bits: Some(rho_bits.clone()),
                     p1: Some(U_i.clone().C),
@@ -1174,6 +1177,7 @@ mod tests {
                 };
 
                 let (_cf_w_i, cf_u_i, cf_W_i1, cf_U_i1, cf_cmT, _) = fold_cyclefold_circuit::<
+                    HyperNovaCycleFoldConfig<Projective>,
                     Projective,
                     GVar,
                     Projective2,

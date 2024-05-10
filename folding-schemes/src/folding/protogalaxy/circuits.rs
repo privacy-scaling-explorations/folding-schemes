@@ -109,7 +109,10 @@ impl FoldingGadget {
 
 #[cfg(test)]
 mod tests {
-    use ark_crypto_primitives::sponge::{constraints::CryptographicSpongeVar, poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge}};
+    use ark_crypto_primitives::sponge::{
+        constraints::CryptographicSpongeVar,
+        poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge},
+    };
     use ark_pallas::{Fr, Projective};
     use ark_r1cs_std::R1CSVar;
     use ark_relations::r1cs::ConstraintSystem;
@@ -118,7 +121,8 @@ mod tests {
     use super::*;
     use crate::{
         ccs::r1cs::tests::get_test_r1cs,
-        folding::protogalaxy::folding::{tests::prepare_inputs, Folding}, transcript::poseidon::poseidon_canonical_config,
+        folding::protogalaxy::folding::{tests::prepare_inputs, Folding},
+        transcript::poseidon::poseidon_canonical_config,
     };
 
     #[test]

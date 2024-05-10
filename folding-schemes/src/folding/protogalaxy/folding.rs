@@ -6,7 +6,7 @@ use ark_poly::{
     univariate::{DensePolynomial, SparsePolynomial},
     DenseUVPolynomial, EvaluationDomain, Evaluations, GeneralEvaluationDomain, Polynomial,
 };
-use ark_std::{cfg_into_iter, Zero, log2};
+use ark_std::{cfg_into_iter, log2, Zero};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::marker::PhantomData;
 
@@ -412,7 +412,7 @@ pub mod tests {
     use ark_pallas::{Fr, Projective};
     use ark_std::UniformRand;
 
-    use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z_split, get_test_z};
+    use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z, get_test_z_split};
     use crate::commitment::{pedersen::Pedersen, CommitmentScheme};
     use crate::transcript::poseidon::poseidon_canonical_config;
 

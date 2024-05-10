@@ -20,11 +20,11 @@ use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, Namespace,
 use ark_std::{fmt::Debug, One, Zero};
 use core::{borrow::Borrow, marker::PhantomData};
 
-use super::CommittedInstance;
+use super::{CommittedInstance, NovaCycleFoldConfig};
 use crate::constants::N_BITS_RO;
 use crate::folding::circuits::{
     cyclefold::{
-        CycleFoldChallengeGadget, CycleFoldCommittedInstanceVar, NIFSFullGadget, CF_IO_LEN,
+        CycleFoldChallengeGadget, CycleFoldCommittedInstanceVar, CycleFoldConfig, NIFSFullGadget,
     },
     nonnative::{affine::NonNativeAffineVar, uint::NonNativeUintVar},
     CF1, CF2,
@@ -326,7 +326,7 @@ where
         let cmT =
             NonNativeAffineVar::new_witness(cs.clone(), || Ok(self.cmT.unwrap_or_else(C1::zero)))?;
 
-        let cf_u_dummy = CommittedInstance::dummy(CF_IO_LEN);
+        let cf_u_dummy = CommittedInstance::dummy(NovaCycleFoldConfig::<C1>::IO_LEN);
         let cf_U_i = CycleFoldCommittedInstanceVar::<C2, GC2>::new_witness(cs.clone(), || {
             Ok(self.cf_U_i.unwrap_or(cf_u_dummy.clone()))
         })?;
