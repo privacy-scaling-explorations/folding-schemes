@@ -460,9 +460,9 @@ pub mod tests {
     use ark_std::UniformRand;
 
     use super::*;
-    use crate::folding::nova::get_cm_coordinates;
     use crate::folding::nova::nifs::tests::prepare_simple_fold_inputs;
     use crate::transcript::poseidon::poseidon_canonical_config;
+    use crate::utils::get_cm_coordinates;
 
     #[test]
     fn test_committed_instance_cyclefold_var() {

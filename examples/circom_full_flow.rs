@@ -21,9 +21,10 @@ use folding_schemes::{
     commitment::{kzg::KZG, pedersen::Pedersen},
     folding::nova::{
         decider_eth::{prepare_calldata, Decider as DeciderEth},
-        Nova,
+        Nova, PreprocessorParam,
     },
     frontend::{circom::CircomFCircuit, FCircuit},
+    transcript::poseidon::poseidon_canonical_config,
     Decider, FoldingScheme,
 };
 use solidity_verifiers::{
@@ -32,9 +33,6 @@ use solidity_verifiers::{
     verifiers::nova_cyclefold::get_decider_template_for_cyclefold_decider,
     NovaCycleFoldVerifierKey,
 };
-
-mod utils;
-use utils::init_ivc_and_decider_params;
 
 fn main() {
     // set the initial state
@@ -66,12 +64,8 @@ fn main() {
     let f_circuit_params = (r1cs_path, wasm_path, 1, 2);
     let f_circuit = CircomFCircuit::<Fr>::new(f_circuit_params).unwrap();
 
-    let (fs_prover_params, kzg_vk, g16_pk, g16_vk) =
-        init_ivc_and_decider_params::<CircomFCircuit<Fr>>(f_circuit.clone());
-
-    pub type NOVA =
-        Nova<G1, GVar, G2, GVar2, CircomFCircuit<Fr>, KZG<'static, Bn254>, Pedersen<G2>>;
-    pub type DECIDERETH_FCircuit = DeciderEth<
+    pub type N = Nova<G1, GVar, G2, GVar2, CircomFCircuit<Fr>, KZG<'static, Bn254>, Pedersen<G2>>;
+    pub type D = DeciderEth<
         G1,
         GVar,
         G2,
@@ -80,30 +74,36 @@ fn main() {
         KZG<'static, Bn254>,
         Pedersen<G2>,
         Groth16<Bn254>,
-        NOVA,
+        N,
     >;
 
+    let poseidon_config = poseidon_canonical_config::<Fr>();
+    let mut rng = rand::rngs::OsRng;
+
+    // prepare the Nova prover & verifier params
+    let nova_preprocess_params = PreprocessorParam::new(poseidon_config, f_circuit.clone());
+    let (fs_pp, fs_vp) = N::preprocess(&mut rng, &nova_preprocess_params).unwrap();
+
     // initialize the folding scheme engine, in our case we use Nova
-    let mut nova = NOVA::init(&fs_prover_params, f_circuit.clone(), z_0).unwrap();
+    let mut nova = N::init(&fs_pp, f_circuit.clone(), z_0).unwrap();
+
+    // prepare the Decider prover & verifier params
+    let (decider_pp, decider_vp) = D::preprocess(&mut rng, &(fs_pp, fs_vp), nova.clone()).unwrap();
+
     // run n steps of the folding iteration
     for (i, external_inputs_at_step) in external_inputs.iter().enumerate() {
         let start = Instant::now();
-        nova.prove_step(external_inputs_at_step.clone()).unwrap();
+        nova.prove_step(rng, external_inputs_at_step.clone())
+            .unwrap();
         println!("Nova::prove_step {}: {:?}", i, start.elapsed());
     }
 
-    let rng = rand::rngs::OsRng;
     let start = Instant::now();
-    let proof = DECIDERETH_FCircuit::prove(
-        (g16_pk, fs_prover_params.cs_params.clone()),
-        rng,
-        nova.clone(),
-    )
-    .unwrap();
+    let proof = D::prove(rng, decider_pp, nova.clone()).unwrap();
     println!("generated Decider proof: {:?}", start.elapsed());
 
-    let verified = DECIDERETH_FCircuit::verify(
-        (g16_vk.clone(), kzg_vk.clone()),
+    let verified = D::verify(
+        decider_vp.clone(),
         nova.i,
         nova.z_0.clone(),
         nova.z_i.clone(),
@@ -131,7 +131,7 @@ fn main() {
     .unwrap();
 
     // prepare the setup params for the solidity verifier
-    let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from((g16_vk, kzg_vk, f_circuit.state_len()));
+    let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from((decider_vp, f_circuit.state_len()));
 
     // generate the solidity code
     let decider_solidity_code = get_decider_template_for_cyclefold_decider(nova_cyclefold_vk);
