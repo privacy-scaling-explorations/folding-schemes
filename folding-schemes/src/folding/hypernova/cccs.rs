@@ -8,10 +8,7 @@ use ark_std::rand::Rng;
 
 use super::Witness;
 use crate::ccs::CCS;
-use crate::commitment::{
-    pedersen::{Params as PedersenParams, Pedersen},
-    CommitmentScheme,
-};
+use crate::commitment::CommitmentScheme;
 use crate::utils::mle::dense_vec_to_dense_mle;
 use crate::utils::vec::mat_vec_mul;
 use crate::utils::virtual_polynomial::{build_eq_x_r_vec, VirtualPolynomial};
@@ -27,10 +24,10 @@ pub struct CCCS<C: CurveGroup> {
 }
 
 impl<F: PrimeField> CCS<F> {
-    pub fn to_cccs<R: Rng, C: CurveGroup>(
+    pub fn to_cccs<R: Rng, C: CurveGroup, CS: CommitmentScheme<C>>(
         &self,
         rng: &mut R,
-        pedersen_params: &PedersenParams<C>,
+        cs_params: &CS::ProverParams,
         z: &[C::ScalarField],
     ) -> Result<(CCCS<C>, Witness<C::ScalarField>), Error>
     where
@@ -38,8 +35,14 @@ impl<F: PrimeField> CCS<F> {
         C: CurveGroup<ScalarField = F>,
     {
         let w: Vec<C::ScalarField> = z[(1 + self.l)..].to_vec();
-        let r_w = C::ScalarField::rand(rng);
-        let C = Pedersen::<C, true>::commit(pedersen_params, &w, &r_w)?;
+
+        // if the commitment scheme is set to be hiding, set the random blinding parameter
+        let r_w = if CS::is_hiding() {
+            C::ScalarField::rand(rng)
+        } else {
+            C::ScalarField::zero()
+        };
+        let C = CS::commit(cs_params, &w, &r_w)?;
 
         Ok((
             CCCS::<C> {
@@ -95,19 +98,13 @@ impl<C: CurveGroup> CCCS<C> {
         }
     }
 
-    /// Perform the check of the CCCS instance described at section 4.1
+    /// Perform the check of the CCCS instance described at section 4.1,
+    /// notice that this method does not check the commitment correctness
     pub fn check_relation(
         &self,
-        pedersen_params: &PedersenParams<C>,
         ccs: &CCS<C::ScalarField>,
         w: &Witness<C::ScalarField>,
     ) -> Result<(), Error> {
-        // check that C is the commitment of w. Notice that this is not verifying a Pedersen
-        // opening, but checking that the commitment comes from committing to the witness.
-        if self.C != Pedersen::<C, true>::commit(pedersen_params, &w.w, &w.r_w)? {
-            return Err(Error::NotSatisfied);
-        }
-
         // check CCCS relation
         let z: Vec<C::ScalarField> =
             [vec![C::ScalarField::one()], self.x.clone(), w.w.to_vec()].concat();

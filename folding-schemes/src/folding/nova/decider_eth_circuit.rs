@@ -264,7 +264,7 @@ where
     ) -> Result<Self, Error> {
         // compute the U_{i+1}, W_{i+1}
         let (T, cmT) = NIFS::<C1, CS1>::compute_cmT(
-            &nova.cs_params,
+            &nova.cs_pp,
             &nova.r1cs.clone(),
             &nova.w_i.clone(),
             &nova.u_i.clone(),
@@ -315,7 +315,7 @@ where
             cf_E_len: nova.cf_W_i.E.len(),
             r1cs: nova.r1cs,
             cf_r1cs: nova.cf_r1cs,
-            cf_pedersen_params: nova.cf_cs_params,
+            cf_pedersen_params: nova.cf_cs_pp,
             poseidon_config: nova.poseidon_config,
             i: Some(nova.i),
             z_0: Some(nova.z_0),
@@ -597,7 +597,6 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
     use ark_crypto_primitives::crh::{
         sha256::{
             constraints::{Sha256Gadget, UnitVar},
@@ -611,14 +610,14 @@ pub mod tests {
     use ark_std::{One, UniformRand};
     use ark_vesta::{constraints::GVar as GVar2, Projective as Projective2};
 
+    use super::*;
+    use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z};
+    use crate::ccs::r1cs::{extract_r1cs, extract_w_x};
     use crate::commitment::pedersen::Pedersen;
     use crate::folding::nova::{get_cs_params_len, ProverParams, VerifierParams};
     use crate::frontend::tests::{CubicFCircuit, CustomFCircuit, WrapperCircuit};
     use crate::transcript::poseidon::poseidon_canonical_config;
     use crate::FoldingScheme;
-
-    use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z};
-    use crate::ccs::r1cs::{extract_r1cs, extract_w_x};
 
     #[test]
     fn test_relaxed_r1cs_small_gadget_handcrafted() {
@@ -786,8 +785,8 @@ pub mod tests {
         let prover_params =
             ProverParams::<Projective, Projective2, Pedersen<Projective>, Pedersen<Projective2>> {
                 poseidon_config: poseidon_config.clone(),
-                cs_params: pedersen_params,
-                cf_cs_params: cf_pedersen_params,
+                cs_pp: pedersen_params.clone(),
+                cf_cs_pp: cf_pedersen_params.clone(),
             };
 
         type NOVA = Nova<
@@ -802,12 +801,19 @@ pub mod tests {
 
         // generate a Nova instance and do a step of it
         let mut nova = NOVA::init(&prover_params, F_circuit, z_0.clone()).unwrap();
-        nova.prove_step(vec![]).unwrap();
+        nova.prove_step(&mut rng, vec![]).unwrap();
         let ivc_v = nova.clone();
-        let verifier_params = VerifierParams::<Projective, Projective2> {
+        let verifier_params = VerifierParams::<
+            Projective,
+            Projective2,
+            Pedersen<Projective>,
+            Pedersen<Projective2>,
+        > {
             poseidon_config: poseidon_config.clone(),
             r1cs: ivc_v.clone().r1cs,
             cf_r1cs: ivc_v.clone().cf_r1cs,
+            cs_vp: pedersen_params,
+            cf_cs_vp: cf_pedersen_params,
         };
         let (running_instance, incoming_instance, cyclefold_instance) = ivc_v.instances();
         NOVA::verify(

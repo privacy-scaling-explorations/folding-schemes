@@ -1,4 +1,6 @@
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
+use ark_std::Zero;
 
 pub mod gadgets;
 pub mod hypercube;
@@ -20,4 +22,13 @@ pub fn powers_of<F: PrimeField>(x: F, n: usize) -> Vec<F> {
         c[i] = c[i - 1] * x;
     }
     c
+}
+
+/// returns the coordinates of a commitment point. This is compatible with the arkworks
+/// GC.to_constraint_field()[..2]
+pub fn get_cm_coordinates<C: CurveGroup>(cm: &C) -> Vec<C::BaseField> {
+    let zero = (&C::BaseField::zero(), &C::BaseField::zero());
+    let cm = cm.into_affine();
+    let (cm_x, cm_y) = cm.xy().unwrap_or(zero);
+    vec![*cm_x, *cm_y]
 }

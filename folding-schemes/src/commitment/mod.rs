@@ -18,6 +18,8 @@ pub trait CommitmentScheme<C: CurveGroup, const H: bool = false>: Clone + Debug 
     type ProverChallenge: Clone + Debug;
     type Challenge: Clone + Debug;
 
+    fn is_hiding() -> bool;
+
     fn setup(
         rng: impl RngCore,
         len: usize,

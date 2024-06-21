@@ -239,7 +239,9 @@ pub mod tests {
         // Initialize a multifolding object
         let (pedersen_params, _) =
             Pedersen::<Projective>::setup(&mut rng, ccs.n - ccs.l - 1).unwrap();
-        let (lcccs_instance, _) = ccs.to_lcccs(&mut rng, &pedersen_params, &z1).unwrap();
+        let (lcccs_instance, _) = ccs
+            .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z1)
+            .unwrap();
 
         let sigmas_thetas =
             compute_sigmas_thetas(&ccs, &[z1.clone()], &[z2.clone()], &r_x_prime).unwrap();
@@ -287,7 +289,9 @@ pub mod tests {
         // Initialize a multifolding object
         let (pedersen_params, _) =
             Pedersen::<Projective>::setup(&mut rng, ccs.n - ccs.l - 1).unwrap();
-        let (lcccs_instance, _) = ccs.to_lcccs(&mut rng, &pedersen_params, &z1).unwrap();
+        let (lcccs_instance, _) = ccs
+            .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z1)
+            .unwrap();
 
         // Compute g(x) with that r_x
         let g = compute_g::<Projective>(

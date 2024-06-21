@@ -39,6 +39,7 @@ where
         (w_dummy, u_dummy)
     }
 
+    // notice that this method does not check the commitment correctness
     fn check_instance_relation(
         &self,
         W: &Witness<C>,
@@ -52,6 +53,7 @@ where
         self.check_relation(&Z)
     }
 
+    // notice that this method does not check the commitment correctness
     fn check_relaxed_instance_relation(
         &self,
         W: &Witness<C>,
