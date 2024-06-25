@@ -129,6 +129,7 @@ where
     pub fn hash(
         &self,
         poseidon_config: &PoseidonConfig<C::ScalarField>,
+        pp_hash: C::ScalarField,
         i: C::ScalarField,
         z_0: Vec<C::ScalarField>,
         z_i: Vec<C::ScalarField>,
@@ -138,6 +139,7 @@ where
         CRH::<C::ScalarField>::evaluate(
             poseidon_config,
             vec![
+                vec![pp_hash],
                 vec![i],
                 z_0,
                 z_i,

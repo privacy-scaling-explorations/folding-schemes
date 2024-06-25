@@ -102,7 +102,7 @@ fn main() {
     let (fs_pp, fs_vp) = NOVA::preprocess(&mut rng, &nova_preprocess_params).unwrap();
 
     // initialize the folding scheme engine, in our case we use Nova
-    let mut nova = NOVA::init(&fs_pp, f_circuit, z_0).unwrap();
+    let mut nova = NOVA::init(&(fs_pp, fs_vp), f_circuit, z_0).unwrap();
 
     // prepare the Decider prover & verifier params
     let (decider_pp, decider_vp) =

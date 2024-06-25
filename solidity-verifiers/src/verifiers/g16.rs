@@ -3,7 +3,7 @@ use crate::utils::encoding::{G1Repr, G2Repr};
 use crate::utils::HeaderInclusion;
 use crate::{ProtocolVerifierKey, GPL3_SDPX_IDENTIFIER};
 use ark_bn254::Bn254;
-use ark_groth16::VerifyingKey;
+use ark_groth16::VerifyingKey as ArkVerifyingKey;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use askama::Template;
 
@@ -48,10 +48,10 @@ impl From<Groth16VerifierKey> for Groth16Verifier {
 // Ideally this would be linked to the `Decider` trait in FoldingSchemes.
 // For now, this is the easiest as NovaCycleFold isn't clear target from where we can get all it's needed arguments.
 #[derive(CanonicalDeserialize, CanonicalSerialize, Clone, PartialEq, Debug)]
-pub struct Groth16VerifierKey(pub(crate) VerifyingKey<Bn254>);
+pub struct Groth16VerifierKey(pub(crate) ArkVerifyingKey<Bn254>);
 
-impl From<VerifyingKey<Bn254>> for Groth16VerifierKey {
-    fn from(value: VerifyingKey<Bn254>) -> Self {
+impl From<ArkVerifyingKey<Bn254>> for Groth16VerifierKey {
+    fn from(value: ArkVerifyingKey<Bn254>) -> Self {
         Self(value)
     }
 }

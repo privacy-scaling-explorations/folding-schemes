@@ -198,6 +198,9 @@ where
         let (cmT_x, cmT_y) = NonNativeAffineVar::inputize(proof.cmT)?;
 
         let public_input: Vec<C1::ScalarField> = vec![
+            // TODO el Deicder::VerifierParam pot contenir Nova::VerifierParam, per poder computar
+            // el vp.nova_vp.pp_hash()
+            // vec![vp.pp_hash()],
             vec![i],
             z_0,
             z_i,
@@ -319,13 +322,12 @@ pub mod tests {
     use ark_bn254::{constraints::GVar, Bn254, Fr, G1Projective as Projective};
     use ark_groth16::Groth16;
     use ark_grumpkin::{constraints::GVar as GVar2, Projective as Projective2};
-    use ark_poly_commit::kzg10::VerifierKey as KZGVerifierKey;
     use std::time::Instant;
 
     use super::*;
-    use crate::commitment::kzg::{ProverKey as KZGProverKey, KZG};
+    use crate::commitment::kzg::KZG;
     use crate::commitment::pedersen::Pedersen;
-    use crate::folding::nova::{get_cs_params_len, ProverParams};
+    use crate::folding::nova::PreprocessorParam;
     use crate::frontend::tests::CubicFCircuit;
     use crate::transcript::poseidon::poseidon_canonical_config;
 
@@ -359,59 +361,30 @@ pub mod tests {
         let F_circuit = CubicFCircuit::<Fr>::new(()).unwrap();
         let z_0 = vec![Fr::from(3_u32)];
 
-        let (cs_len, cf_cs_len) =
-            get_cs_params_len::<Projective, GVar, Projective2, GVar2, CubicFCircuit<Fr>>(
-                &poseidon_config,
-                F_circuit,
-            )
-            .unwrap();
-        let start = Instant::now();
-        let (kzg_pk, kzg_vk): (KZGProverKey<Projective>, KZGVerifierKey<Bn254>) =
-            KZG::<Bn254>::setup(&mut rng, cs_len).unwrap();
-        let (cf_pedersen_params, _) = Pedersen::<Projective2>::setup(&mut rng, cf_cs_len).unwrap();
-        println!("generated KZG params, {:?}", start.elapsed());
-
-        let prover_params =
-            ProverParams::<Projective, Projective2, KZG<Bn254>, Pedersen<Projective2>> {
-                poseidon_config: poseidon_config.clone(),
-                cs_pp: kzg_pk.clone(),
-                cf_cs_pp: cf_pedersen_params,
-            };
+        let prep_param = PreprocessorParam::new(poseidon_config, F_circuit);
+        let nova_params = NOVA::preprocess(&mut rng, &prep_param).unwrap();
 
         let start = Instant::now();
-        let mut nova = NOVA::init(&prover_params, F_circuit, z_0.clone()).unwrap();
+        let mut nova = NOVA::init(nova_params.clone(), F_circuit, z_0.clone()).unwrap();
         println!("Nova initialized, {:?}", start.elapsed());
         let start = Instant::now();
         nova.prove_step(&mut rng, vec![]).unwrap();
         println!("prove_step, {:?}", start.elapsed());
         nova.prove_step(&mut rng, vec![]).unwrap(); // do a 2nd step
 
-        // generate Groth16 setup
-        let circuit = DeciderEthCircuit::<
-            Projective,
-            GVar,
-            Projective2,
-            GVar2,
-            KZG<Bn254>,
-            Pedersen<Projective2>,
-        >::from_nova::<CubicFCircuit<Fr>>(nova.clone())
-        .unwrap();
         let mut rng = rand::rngs::OsRng;
 
-        let start = Instant::now();
-        let (g16_pk, g16_vk) =
-            Groth16::<Bn254>::circuit_specific_setup(circuit.clone(), &mut rng).unwrap();
-        println!("Groth16 setup, {:?}", start.elapsed());
+        // prepare the Decider prover & verifier params
+        let (decider_pp, decider_vp) =
+            DECIDER::preprocess(&mut rng, &nova_params, nova.clone()).unwrap();
 
         // decider proof generation
         let start = Instant::now();
-        let decider_pp = (g16_pk, kzg_pk);
         let proof = DECIDER::prove(rng, decider_pp, nova.clone()).unwrap();
         println!("Decider prove, {:?}", start.elapsed());
 
         // decider proof verification
         let start = Instant::now();
-        let decider_vp = (g16_vk, kzg_vk);
         let verified = DECIDER::verify(
             decider_vp, nova.i, nova.z_0, nova.z_i, &nova.U_i, &nova.u_i, &proof,
         )

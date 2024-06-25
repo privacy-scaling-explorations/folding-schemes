@@ -41,6 +41,7 @@ where
         mut writer: W,
         compress: ark_serialize::Compress,
     ) -> Result<(), ark_serialize::SerializationError> {
+        self.pp_hash.serialize_with_mode(&mut writer, compress)?;
         self.i.serialize_with_mode(&mut writer, compress)?;
         self.z_0.serialize_with_mode(&mut writer, compress)?;
         self.z_i.serialize_with_mode(&mut writer, compress)?;
@@ -53,7 +54,8 @@ where
     }
 
     fn serialized_size(&self, compress: ark_serialize::Compress) -> usize {
-        self.i.serialized_size(compress)
+        self.pp_hash.serialized_size(compress)
+            + self.i.serialized_size(compress)
             + self.z_0.serialized_size(compress)
             + self.z_i.serialized_size(compress)
             + self.w_i.serialized_size(compress)
@@ -115,6 +117,7 @@ where
         prover_params: ProverParams<C1, C2, CS1, CS2>,
         poseidon_config: PoseidonConfig<C1::ScalarField>,
     ) -> Result<Self, ark_serialize::SerializationError> {
+        let pp_hash = C1::ScalarField::deserialize_with_mode(&mut reader, compress, validate)?;
         let i = C1::ScalarField::deserialize_with_mode(&mut reader, compress, validate)?;
         let z_0 = Vec::<C1::ScalarField>::deserialize_with_mode(&mut reader, compress, validate)?;
         let z_i = Vec::<C1::ScalarField>::deserialize_with_mode(&mut reader, compress, validate)?;
@@ -151,8 +154,13 @@ where
             _gc1: PhantomData,
             _c2: PhantomData,
             _gc2: PhantomData,
+            r1cs,
+            cf_r1cs,
+            poseidon_config,
             cs_pp: prover_params.cs_pp,
             cf_cs_pp: prover_params.cf_cs_pp,
+            F: f_circuit,
+            pp_hash,
             i,
             z_0,
             z_i,
@@ -162,10 +170,6 @@ where
             U_i,
             cf_W_i,
             cf_U_i,
-            r1cs,
-            cf_r1cs,
-            poseidon_config,
-            F: f_circuit,
         })
     }
 }
@@ -174,17 +178,12 @@ where
 pub mod tests {
     use ark_bn254::{constraints::GVar, Bn254, Fr, G1Projective as Projective};
     use ark_grumpkin::{constraints::GVar as GVar2, Projective as Projective2};
-    use ark_poly_commit::kzg10::VerifierKey as KZGVerifierKey;
     use ark_serialize::{CanonicalSerialize, Compress, Validate};
     use std::{fs, io::Write};
 
     use crate::{
-        commitment::{
-            kzg::{ProverKey as KZGProverKey, KZG},
-            pedersen::Pedersen,
-            CommitmentScheme,
-        },
-        folding::nova::{get_cs_params_len, Nova, ProverParams},
+        commitment::{kzg::KZG, pedersen::Pedersen},
+        folding::nova::{Nova, PreprocessorParam},
         frontend::{tests::CubicFCircuit, FCircuit},
         transcript::poseidon::poseidon_canonical_config,
         FoldingScheme,
@@ -195,15 +194,6 @@ pub mod tests {
         let mut rng = ark_std::test_rng();
         let poseidon_config = poseidon_canonical_config::<Fr>();
         let F_circuit = CubicFCircuit::<Fr>::new(()).unwrap();
-        let (cs_len, cf_cs_len) =
-            get_cs_params_len::<Projective, GVar, Projective2, GVar2, CubicFCircuit<Fr>>(
-                &poseidon_config,
-                F_circuit,
-            )
-            .unwrap();
-        let (kzg_pk, _): (KZGProverKey<Projective>, KZGVerifierKey<Bn254>) =
-            KZG::<Bn254>::setup(&mut rng, cs_len).unwrap();
-        let (cf_pedersen_params, _) = Pedersen::<Projective2>::setup(&mut rng, cf_cs_len).unwrap();
 
         // Initialize nova and make multiple `prove_step()`
         type NOVA = Nova<
@@ -215,15 +205,16 @@ pub mod tests {
             KZG<'static, Bn254>,
             Pedersen<Projective2>,
         >;
-        let prover_params =
-            ProverParams::<Projective, Projective2, KZG<Bn254>, Pedersen<Projective2>> {
-                poseidon_config: poseidon_config.clone(),
-                cs_pp: kzg_pk.clone(),
-                cf_cs_pp: cf_pedersen_params.clone(),
-            };
+        let prep_param = PreprocessorParam::new(poseidon_config.clone(), F_circuit);
+        let (prover_params, verifier_params) = NOVA::preprocess(&mut rng, &prep_param).unwrap();
 
         let z_0 = vec![Fr::from(3_u32)];
-        let mut nova = NOVA::init(&prover_params, F_circuit, z_0.clone()).unwrap();
+        let mut nova = NOVA::init(
+            (prover_params.clone(), verifier_params),
+            F_circuit,
+            z_0.clone(),
+        )
+        .unwrap();
 
         let num_steps: usize = 3;
         for _ in 0..num_steps {

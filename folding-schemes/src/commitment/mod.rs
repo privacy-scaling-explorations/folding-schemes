@@ -1,4 +1,5 @@
 use ark_ec::CurveGroup;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::fmt::Debug;
 use ark_std::rand::RngCore;
 
@@ -13,7 +14,7 @@ pub mod pedersen;
 /// commitment in hiding mode or not.
 pub trait CommitmentScheme<C: CurveGroup, const H: bool = false>: Clone + Debug {
     type ProverParams: Clone + Debug;
-    type VerifierParams: Clone + Debug;
+    type VerifierParams: Clone + Debug + CanonicalSerialize + CanonicalDeserialize;
     type Proof: Clone + Debug;
     type ProverChallenge: Clone + Debug;
     type Challenge: Clone + Debug;

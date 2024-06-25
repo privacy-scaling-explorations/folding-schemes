@@ -2,8 +2,8 @@
 #![allow(non_camel_case_types)]
 
 use ark_bn254::{Bn254, Fq, G1Affine};
-use ark_groth16::VerifyingKey;
-use ark_poly_commit::kzg10::VerifierKey;
+use ark_groth16::VerifyingKey as ArkG16VerifierKey;
+use ark_poly_commit::kzg10::VerifierKey as ArkKZG10VerifierKey;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use askama::Template;
 
@@ -85,8 +85,18 @@ impl From<(Groth16VerifierKey, KZG10VerifierKey, usize)> for NovaCycleFoldVerifi
 
 // implements From assuming that the 'batchCheck' method from the KZG10 template will not be used
 // in the NovaCycleFoldDecider verifier contract
-impl From<((VerifyingKey<Bn254>, VerifierKey<Bn254>), usize)> for NovaCycleFoldVerifierKey {
-    fn from(value: ((VerifyingKey<Bn254>, VerifierKey<Bn254>), usize)) -> Self {
+impl
+    From<(
+        (ArkG16VerifierKey<Bn254>, ArkKZG10VerifierKey<Bn254>),
+        usize,
+    )> for NovaCycleFoldVerifierKey
+{
+    fn from(
+        value: (
+            (ArkG16VerifierKey<Bn254>, ArkKZG10VerifierKey<Bn254>),
+            usize,
+        ),
+    ) -> Self {
         let decider_vp = value.0;
         let g16_vk = Groth16VerifierKey::from(decider_vp.0);
         // pass `Vec::new()` since batchCheck will not be used
@@ -101,8 +111,8 @@ impl From<((VerifyingKey<Bn254>, VerifierKey<Bn254>), usize)> for NovaCycleFoldV
 
 impl NovaCycleFoldVerifierKey {
     pub fn new(
-        vkey_g16: VerifyingKey<Bn254>,
-        vkey_kzg: VerifierKey<Bn254>,
+        vkey_g16: ArkG16VerifierKey<Bn254>,
+        vkey_kzg: ArkKZG10VerifierKey<Bn254>,
         crs_points: Vec<G1Affine>,
         z_len: usize,
     ) -> Self {
@@ -117,12 +127,9 @@ impl NovaCycleFoldVerifierKey {
 #[cfg(test)]
 mod tests {
     use ark_bn254::{constraints::GVar, Bn254, Fr, G1Projective as G1};
-    use ark_crypto_primitives::snark::SNARK;
     use ark_ff::PrimeField;
-    use ark_groth16::VerifyingKey as G16VerifierKey;
-    use ark_groth16::{Groth16, ProvingKey};
+    use ark_groth16::Groth16;
     use ark_grumpkin::{constraints::GVar as GVar2, Projective as G2};
-    use ark_poly_commit::kzg10::VerifierKey as KZGVerifierKey;
     use ark_r1cs_std::alloc::AllocVar;
     use ark_r1cs_std::fields::fp::FpVar;
     use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
@@ -132,15 +139,10 @@ mod tests {
     use std::time::Instant;
 
     use folding_schemes::{
-        commitment::{
-            kzg::{ProverKey as KZGProverKey, KZG},
-            pedersen::Pedersen,
-            CommitmentScheme,
-        },
+        commitment::{kzg::KZG, pedersen::Pedersen},
         folding::nova::{
             decider_eth::{prepare_calldata, Decider as DeciderEth},
-            decider_eth_circuit::DeciderEthCircuit,
-            get_cs_params_len, Nova, ProverParams,
+            Nova, PreprocessorParam,
         },
         frontend::FCircuit,
         transcript::poseidon::poseidon_canonical_config,
@@ -155,6 +157,24 @@ mod tests {
         verifiers::nova_cyclefold::get_decider_template_for_cyclefold_decider,
         NovaCycleFoldVerifierKey, ProtocolVerifierKey,
     };
+
+    type NOVA<FC> = Nova<G1, GVar, G2, GVar2, FC, KZG<'static, Bn254>, Pedersen<G2>>;
+    type DECIDER<FC> = DeciderEth<
+        G1,
+        GVar,
+        G2,
+        GVar2,
+        FC,
+        KZG<'static, Bn254>,
+        Pedersen<G2>,
+        Groth16<Bn254>,
+        NOVA<FC>,
+    >;
+
+    type FS_PP<FC> = <NOVA<FC> as FoldingScheme<G1, G2, FC>>::ProverParam;
+    type FS_VP<FC> = <NOVA<FC> as FoldingScheme<G1, G2, FC>>::VerifierParam;
+    type DECIDER_PP<FC> = <DECIDER<FC> as Decider<G1, G2, FC, NOVA<FC>>>::ProverParam;
+    type DECIDER_VP<FC> = <DECIDER<FC> as Decider<G1, G2, FC, NOVA<FC>>>::VerifierParam;
 
     /// Test circuit to be folded
     #[derive(Clone, Copy, Debug)]
@@ -282,59 +302,28 @@ mod tests {
         save_solidity("NovaDecider.sol", &decider_solidity_code.render().unwrap());
     }
 
-    #[allow(clippy::type_complexity)]
-    fn init_test_prover_params<FC: FCircuit<Fr, Params = ()>>() -> (
-        ProverParams<G1, G2, KZG<'static, Bn254>, Pedersen<G2>>,
-        KZGVerifierKey<Bn254>,
-    ) {
-        let mut rng = ark_std::test_rng();
-        let poseidon_config = poseidon_canonical_config::<Fr>();
-        let f_circuit = FC::new(()).unwrap();
-        let (cs_len, cf_cs_len) =
-            get_cs_params_len::<G1, GVar, G2, GVar2, FC>(&poseidon_config, f_circuit).unwrap();
-        let (kzg_pk, kzg_vk): (KZGProverKey<G1>, KZGVerifierKey<Bn254>) =
-            KZG::<Bn254>::setup(&mut rng, cs_len).unwrap();
-        let (cf_pedersen_params, _) = Pedersen::<G2>::setup(&mut rng, cf_cs_len).unwrap();
-        let fs_prover_params = ProverParams::<G1, G2, KZG<Bn254>, Pedersen<G2>> {
-            poseidon_config: poseidon_config.clone(),
-            cs_pp: kzg_pk.clone(),
-            cf_cs_pp: cf_pedersen_params,
-        };
-        (fs_prover_params, kzg_vk)
-    }
-
     /// Initializes Nova parameters and DeciderEth parameters. Only for test purposes.
-    #[allow(clippy::type_complexity)]
-    fn init_params<FC: FCircuit<Fr, Params = ()>>() -> (
-        ProverParams<G1, G2, KZG<'static, Bn254>, Pedersen<G2>>,
-        KZGVerifierKey<Bn254>,
-        ProvingKey<Bn254>,
-        G16VerifierKey<Bn254>,
-    ) {
+    fn init_params<FC: FCircuit<Fr, Params = ()>>(
+    ) -> ((FS_PP<FC>, FS_VP<FC>), (DECIDER_PP<FC>, DECIDER_VP<FC>)) {
         let mut rng = rand::rngs::OsRng;
-        let start = Instant::now();
-        let (fs_prover_params, kzg_vk) = init_test_prover_params::<FC>();
-        println!("generated Nova folding params: {:?}", start.elapsed());
+        let poseidon_config = poseidon_canonical_config::<Fr>();
+
         let f_circuit = FC::new(()).unwrap();
-
-        pub type NOVA_FCircuit<FC> =
-            Nova<G1, GVar, G2, GVar2, FC, KZG<'static, Bn254>, Pedersen<G2>>;
-        let z_0 = vec![Fr::zero(); f_circuit.state_len()];
-        let nova = NOVA_FCircuit::init(&fs_prover_params, f_circuit, z_0.clone()).unwrap();
-
-        let decider_circuit =
-            DeciderEthCircuit::<G1, GVar, G2, GVar2, KZG<Bn254>, Pedersen<G2>>::from_nova::<FC>(
-                nova.clone(),
-            )
-            .unwrap();
-        let start = Instant::now();
-        let (g16_pk, g16_vk) =
-            Groth16::<Bn254>::circuit_specific_setup(decider_circuit.clone(), &mut rng).unwrap();
-        println!(
-            "generated G16 (Decider circuit) params: {:?}",
-            start.elapsed()
+        let prep_param = PreprocessorParam::<G1, G2, FC, KZG<'static, Bn254>, Pedersen<G2>>::new(
+            poseidon_config,
+            f_circuit.clone(),
         );
-        (fs_prover_params, kzg_vk, g16_pk, g16_vk)
+        let nova_params = NOVA::preprocess(&mut rng, &prep_param).unwrap();
+        let nova = NOVA::init(
+            nova_params.clone(),
+            f_circuit.clone(),
+            vec![Fr::zero(); f_circuit.state_len()].clone(),
+        )
+        .unwrap();
+        let decider_params =
+            DECIDER::preprocess(&mut rng, &nova_params.clone(), nova.clone()).unwrap();
+
+        (nova_params, decider_params)
     }
 
     /// This function allows to define which FCircuit to use for the test, and how many prove_step
@@ -346,52 +335,31 @@ mod tests {
     /// - modifies the z_0 and checks that it does not pass the EVM check
     #[allow(clippy::type_complexity)]
     fn nova_cyclefold_solidity_verifier_opt<FC: FCircuit<Fr, Params = ()>>(
-        params: (
-            ProverParams<G1, G2, KZG<'static, Bn254>, Pedersen<G2>>,
-            KZGVerifierKey<Bn254>,
-            ProvingKey<Bn254>,
-            G16VerifierKey<Bn254>,
-        ),
+        fs_params: (FS_PP<FC>, FS_VP<FC>),
+        decider_params: (DECIDER_PP<FC>, DECIDER_VP<FC>),
         z_0: Vec<Fr>,
         n_steps: usize,
     ) {
-        let (fs_prover_params, kzg_vk, g16_pk, g16_vk) = params.clone();
+        let (decider_pp, decider_vp) = decider_params;
 
-        pub type NOVA_FCircuit<FC> =
-            Nova<G1, GVar, G2, GVar2, FC, KZG<'static, Bn254>, Pedersen<G2>>;
-        pub type DECIDERETH_FCircuit<FC> = DeciderEth<
-            G1,
-            GVar,
-            G2,
-            GVar2,
-            FC,
-            KZG<'static, Bn254>,
-            Pedersen<G2>,
-            Groth16<Bn254>,
-            NOVA_FCircuit<FC>,
-        >;
         let f_circuit = FC::new(()).unwrap();
 
-        let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from((
-            (g16_vk.clone(), kzg_vk.clone()),
-            f_circuit.state_len(),
-        ));
+        let nova_cyclefold_vk =
+            NovaCycleFoldVerifierKey::from((decider_vp.clone(), f_circuit.state_len()));
 
         let mut rng = rand::rngs::OsRng;
 
-        let mut nova = NOVA_FCircuit::init(&fs_prover_params, f_circuit, z_0).unwrap();
+        let mut nova = NOVA::<FC>::init(fs_params, f_circuit, z_0).unwrap();
         for _ in 0..n_steps {
             nova.prove_step(&mut rng, vec![]).unwrap();
         }
 
         let start = Instant::now();
-        let proof =
-            DECIDERETH_FCircuit::prove(rng, (g16_pk, fs_prover_params.cs_pp.clone()), nova.clone())
-                .unwrap();
+        let proof = DECIDER::<FC>::prove(rng, decider_pp, nova.clone()).unwrap();
         println!("generated Decider proof: {:?}", start.elapsed());
 
-        let verified = DECIDERETH_FCircuit::<FC>::verify(
-            (g16_vk, kzg_vk),
+        let verified = DECIDER::<FC>::verify(
+            decider_vp,
             nova.i,
             nova.z_0.clone(),
             nova.z_i.clone(),
@@ -448,12 +416,22 @@ mod tests {
 
     #[test]
     fn nova_cyclefold_solidity_verifier() {
-        let params = init_params::<CubicFCircuit<Fr>>();
+        let (nova_params, decider_params) = init_params::<CubicFCircuit<Fr>>();
         let z_0 = vec![Fr::from(3_u32)];
-        nova_cyclefold_solidity_verifier_opt::<CubicFCircuit<Fr>>(params.clone(), z_0.clone(), 2);
-        nova_cyclefold_solidity_verifier_opt::<CubicFCircuit<Fr>>(params.clone(), z_0.clone(), 3);
+        nova_cyclefold_solidity_verifier_opt::<CubicFCircuit<Fr>>(
+            nova_params.clone(),
+            decider_params.clone(),
+            z_0.clone(),
+            2,
+        );
+        nova_cyclefold_solidity_verifier_opt::<CubicFCircuit<Fr>>(
+            nova_params,
+            decider_params,
+            z_0,
+            3,
+        );
 
-        let params = init_params::<MultiInputsFCircuit<Fr>>();
+        let (nova_params, decider_params) = init_params::<MultiInputsFCircuit<Fr>>();
         let z_0 = vec![
             Fr::from(1_u32),
             Fr::from(1_u32),
@@ -462,12 +440,14 @@ mod tests {
             Fr::from(1_u32),
         ];
         nova_cyclefold_solidity_verifier_opt::<MultiInputsFCircuit<Fr>>(
-            params.clone(),
+            nova_params.clone(),
+            decider_params.clone(),
             z_0.clone(),
             2,
         );
         nova_cyclefold_solidity_verifier_opt::<MultiInputsFCircuit<Fr>>(
-            params.clone(),
+            nova_params,
+            decider_params,
             z_0.clone(),
             3,
         );

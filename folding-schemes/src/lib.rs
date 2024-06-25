@@ -123,7 +123,7 @@ where
     ) -> Result<(Self::ProverParam, Self::VerifierParam), Error>;
 
     fn init(
-        pp: &Self::ProverParam,
+        params: (Self::ProverParam, Self::VerifierParam),
         step_circuit: FC,
         z_0: Vec<C1::ScalarField>, // initial state
     ) -> Result<Self, Error>;

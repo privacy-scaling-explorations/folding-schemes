@@ -259,8 +259,10 @@ pub mod tests {
 
         let poseidon_config = poseidon_canonical_config::<C::ScalarField>();
 
+        let pp_hash = C::ScalarField::from(42u32); // only for test
         let r_bits = ChallengeGadget::<C>::get_challenge_native(
             &poseidon_config,
+            pp_hash,
             ci1.clone(),
             ci2.clone(),
             cmT,

@@ -13,7 +13,7 @@ use ark_std::fmt::Debug;
 use ark_std::rand::RngCore;
 use ark_std::{One, Zero};
 use core::marker::PhantomData;
-use std::usize;
+use sha3::{Digest, Sha3_256};
 
 use crate::ccs::r1cs::{extract_r1cs, extract_w_x, R1CS};
 use crate::commitment::CommitmentScheme;
@@ -70,6 +70,7 @@ where
     pub fn hash(
         &self,
         poseidon_config: &PoseidonConfig<C::ScalarField>,
+        pp_hash: C::ScalarField, // public params hash
         i: C::ScalarField,
         z_0: Vec<C::ScalarField>,
         z_i: Vec<C::ScalarField>,
@@ -80,7 +81,7 @@ where
         CRH::<C::ScalarField>::evaluate(
             poseidon_config,
             vec![
-                vec![i],
+                vec![pp_hash, i],
                 z_0,
                 z_i,
                 vec![self.u],
@@ -140,9 +141,13 @@ where
     pub fn hash_cyclefold(
         &self,
         poseidon_config: &PoseidonConfig<C::BaseField>,
+        pp_hash: C::BaseField, // public params hash
     ) -> Result<C::BaseField, Error> {
-        CRH::<C::BaseField>::evaluate(poseidon_config, self.to_field_elements().unwrap())
-            .map_err(|e| Error::Other(e.to_string()))
+        CRH::<C::BaseField>::evaluate(
+            poseidon_config,
+            [vec![pp_hash], self.to_field_elements().unwrap()].concat(),
+        )
+        .map_err(|e| Error::Other(e.to_string()))
     }
 }
 
@@ -253,6 +258,48 @@ where
     pub cf_cs_vp: CS2::VerifierParams,
 }
 
+impl<C1, C2, CS1, CS2> VerifierParams<C1, C2, CS1, CS2>
+where
+    C1: CurveGroup,
+    C2: CurveGroup,
+    CS1: CommitmentScheme<C1>,
+    CS2: CommitmentScheme<C2>,
+{
+    pub fn pp_hash(&self) -> Result<C1::ScalarField, Error> {
+        // hash public params
+        let mut hasher = Sha3_256::new();
+        // Fr & Fq modulus bit size
+        hasher.update(C1::ScalarField::MODULUS_BIT_SIZE.to_le_bytes());
+        hasher.update(C2::ScalarField::MODULUS_BIT_SIZE.to_le_bytes());
+        // AugmentedFCircuit R1CS params
+        hasher.update(self.r1cs.l.to_le_bytes());
+        hasher.update(self.r1cs.A.n_rows.to_le_bytes());
+        hasher.update(self.r1cs.A.n_cols.to_le_bytes());
+        // CycleFold Circuit R1CS params
+        hasher.update(self.cf_r1cs.l.to_le_bytes());
+        hasher.update(self.cf_r1cs.A.n_rows.to_le_bytes());
+        hasher.update(self.cf_r1cs.A.n_cols.to_le_bytes());
+        // cs_vp & cf_cs_vp (commitments setup)
+        let mut cs_vp_bytes = Vec::new();
+        self.cs_vp.serialize_uncompressed(&mut cs_vp_bytes)?;
+        hasher.update(cs_vp_bytes);
+        let mut cf_cs_vp_bytes = Vec::new();
+        self.cf_cs_vp.serialize_uncompressed(&mut cf_cs_vp_bytes)?;
+        hasher.update(cf_cs_vp_bytes);
+        // poseidon params
+        // TODO
+        // let mut poseidon_config_bytes = Vec::new();
+        // prep_param
+        //     .poseidon_config
+        //     .serialize_uncompressed(&mut poseidon_config_bytes)?;
+        // hasher.update(poseidon_config_bytes);
+        let public_params_hash = hasher.finalize();
+        Ok(C1::ScalarField::from_le_bytes_mod_order(
+            &public_params_hash,
+        ))
+    }
+}
+
 /// Implements Nova+CycleFold's IVC, described in [Nova](https://eprint.iacr.org/2021/370.pdf) and
 /// [CycleFold](https://eprint.iacr.org/2023/1192.pdf), following the FoldingScheme trait
 #[derive(Clone, Debug)]
@@ -280,6 +327,8 @@ where
     pub cf_cs_pp: CS2::ProverParams,
     /// F circuit, the circuit that is being folded
     pub F: FC,
+    /// public params hash
+    pub pp_hash: C1::ScalarField,
     pub i: C1::ScalarField,
     /// initial state
     pub z_0: Vec<C1::ScalarField>,
@@ -343,8 +392,8 @@ where
             cf_cs_pp = prep_param.clone().cf_cs_pp.unwrap();
             cf_cs_vp = prep_param.clone().cf_cs_vp.unwrap();
         } else {
-            (cs_pp, cs_vp) = CS1::setup(&mut rng, r1cs.A.n_rows).unwrap();
-            (cf_cs_pp, cf_cs_vp) = CS2::setup(&mut rng, cf_r1cs.A.n_rows).unwrap();
+            (cs_pp, cs_vp) = CS1::setup(&mut rng, r1cs.A.n_rows)?;
+            (cf_cs_pp, cf_cs_vp) = CS2::setup(&mut rng, cf_r1cs.A.n_rows)?;
         }
 
         let prover_params = ProverParams::<C1, C2, CS1, CS2> {
@@ -356,14 +405,21 @@ where
             poseidon_config: prep_param.poseidon_config.clone(),
             r1cs,
             cf_r1cs,
-            cs_vp: cs_vp.clone(),
-            cf_cs_vp: cf_cs_vp.clone(),
+            cs_vp,
+            cf_cs_vp,
         };
-        Ok((prover_params.clone(), verifier_params))
+
+        Ok((prover_params, verifier_params))
     }
 
     /// Initializes the Nova+CycleFold's IVC for the given parameters and initial state `z_0`.
-    fn init(pp: &Self::ProverParam, F: FC, z_0: Vec<C1::ScalarField>) -> Result<Self, Error> {
+    fn init(
+        params: (Self::ProverParam, Self::VerifierParam),
+        F: FC,
+        z_0: Vec<C1::ScalarField>,
+    ) -> Result<Self, Error> {
+        let (pp, vp) = params;
+
         // prepare the circuit to obtain its R1CS
         let cs = ConstraintSystem::<C1::ScalarField>::new_ref();
         let cs2 = ConstraintSystem::<C1::BaseField>::new_ref();
@@ -382,6 +438,10 @@ where
         let cs2 = cs2.into_inner().ok_or(Error::NoInnerConstraintSystem)?;
         let cf_r1cs = extract_r1cs::<C1::BaseField>(&cs2);
 
+        // compute the public params hash
+        let pp_hash = vp.pp_hash()?;
+        dbg!(&pp_hash);
+
         // setup the dummy instances
         let (w_dummy, u_dummy) = r1cs.dummy_instance();
         let (cf_w_dummy, cf_u_dummy) = cf_r1cs.dummy_instance();
@@ -398,6 +458,7 @@ where
             cs_pp: pp.cs_pp.clone(),
             cf_cs_pp: pp.cf_cs_pp.clone(),
             F,
+            pp_hash,
             i: C1::ScalarField::zero(),
             z_0: z_0.clone(),
             z_i: z_0,
@@ -453,6 +514,7 @@ where
         // r_bits is the r used to the RLC of the F' instances
         let r_bits = ChallengeGadget::<C1>::get_challenge_native(
             &self.poseidon_config,
+            self.pp_hash,
             self.U_i.clone(),
             self.u_i.clone(),
             cmT,
@@ -471,6 +533,7 @@ where
         // u_{i+1}.x[0] = H(i+1, z_0, z_{i+1}, U_{i+1})
         let u_i1_x = U_i1.hash(
             &self.poseidon_config,
+            self.pp_hash,
             self.i + C1::ScalarField::one(),
             self.z_0.clone(),
             z_i1.clone(),
@@ -479,11 +542,14 @@ where
         let cf_u_i1_x: C1::ScalarField;
 
         if self.i == C1::ScalarField::zero() {
-            cf_u_i1_x = self.cf_U_i.hash_cyclefold(&self.poseidon_config)?;
+            cf_u_i1_x = self
+                .cf_U_i
+                .hash_cyclefold(&self.poseidon_config, self.pp_hash)?;
             // base case
             augmented_F_circuit = AugmentedFCircuit::<C1, C2, GC2, FC> {
                 _gc2: PhantomData,
                 poseidon_config: self.poseidon_config.clone(),
+                pp_hash: Some(self.pp_hash),
                 i: Some(C1::ScalarField::zero()), // = i=0
                 i_usize: Some(0),
                 z_0: Some(self.z_0.clone()), // = z_i
@@ -552,11 +618,12 @@ where
             let (_cfE_w_i, cfE_u_i, cf_W_i1, cf_U_i1, cf_cmT, _) =
                 self.fold_cyclefold_circuit(cfW_W_i1, cfW_U_i1.clone(), cfE_u_i_x, cfE_circuit)?;
 
-            cf_u_i1_x = cf_U_i1.hash_cyclefold(&self.poseidon_config)?;
+            cf_u_i1_x = cf_U_i1.hash_cyclefold(&self.poseidon_config, self.pp_hash)?;
 
             augmented_F_circuit = AugmentedFCircuit::<C1, C2, GC2, FC> {
                 _gc2: PhantomData,
                 poseidon_config: self.poseidon_config.clone(),
+                pp_hash: Some(self.pp_hash),
                 i: Some(self.i),
                 i_usize: Some(i_usize),
                 z_0: Some(self.z_0.clone()),
@@ -661,14 +728,16 @@ where
             return Err(Error::IVCVerificationFail);
         }
 
+        let pp_hash = vp.pp_hash()?;
+
         // check that u_i's output points to the running instance
         // u_i.X[0] == H(i, z_0, z_i, U_i)
-        let expected_u_i_x = U_i.hash(&vp.poseidon_config, num_steps, z_0, z_i.clone())?;
+        let expected_u_i_x = U_i.hash(&vp.poseidon_config, pp_hash, num_steps, z_0, z_i.clone())?;
         if expected_u_i_x != u_i.x[0] {
             return Err(Error::IVCVerificationFail);
         }
         // u_i.X[1] == H(cf_U_i)
-        let expected_cf_u_i_x = cf_U_i.hash_cyclefold(&vp.poseidon_config)?;
+        let expected_cf_u_i_x = cf_U_i.hash_cyclefold(&vp.poseidon_config, pp_hash)?;
         if expected_cf_u_i_x != u_i.x[1] {
             return Err(Error::IVCVerificationFail);
         }
@@ -758,6 +827,7 @@ where
             &self.poseidon_config,
             self.cf_r1cs.clone(),
             self.cf_cs_pp.clone(),
+            self.pp_hash,
             cf_W_i,
             cf_U_i,
             cf_u_i_x,
@@ -868,18 +938,20 @@ pub mod tests {
         type NOVA<CS1, CS2> =
             Nova<Projective, GVar, Projective2, GVar2, CubicFCircuit<Fr>, CS1, CS2>;
 
-        let prep_param = PreprocessorParam::<Projective, Projective2, CubicFCircuit<Fr>, CS1, CS2> {
-            poseidon_config,
-            F: F_circuit,
-            cs_pp: None,
-            cs_vp: None,
-            cf_cs_pp: None,
-            cf_cs_vp: None,
-        };
+        let prep_param =
+            PreprocessorParam::<Projective, Projective2, CubicFCircuit<Fr>, CS1, CS2>::new(
+                poseidon_config,
+                F_circuit,
+            );
         let (prover_params, verifier_params) = NOVA::preprocess(&mut rng, &prep_param).unwrap();
 
         let z_0 = vec![Fr::from(3_u32)];
-        let mut nova = NOVA::init(&prover_params, F_circuit, z_0.clone()).unwrap();
+        let mut nova = NOVA::init(
+            (prover_params, verifier_params.clone()),
+            F_circuit,
+            z_0.clone(),
+        )
+        .unwrap();
 
         let num_steps: usize = 3;
         for _ in 0..num_steps {
