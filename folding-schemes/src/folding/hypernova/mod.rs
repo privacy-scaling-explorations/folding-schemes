@@ -24,16 +24,17 @@ use crate::folding::circuits::{
     CF2,
 };
 use crate::folding::nova::{
-    get_r1cs_from_cs, traits::NovaR1CS, CommittedInstance, Witness as NovaWitness,
+    get_r1cs_from_cs, traits::NovaR1CS, CommittedInstance, PreprocessorParam,
+    Witness as NovaWitness,
 };
 use crate::frontend::FCircuit;
-use crate::utils::get_cm_coordinates;
+use crate::utils::{get_cm_coordinates, pp_hash};
 use crate::Error;
 use crate::FoldingScheme;
 use crate::{
-    ccs::{
+    arith::{
+        ccs::CCS,
         r1cs::{extract_w_x, R1CS},
-        CCS,
     },
     transcript::{poseidon::PoseidonTranscript, Transcript},
 };
@@ -54,22 +55,6 @@ impl<F: PrimeField> Witness<F> {
     pub fn dummy(ccs: &CCS<F>) -> Self {
         Witness::<F>::new(vec![F::zero(); ccs.n - ccs.l - 1])
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct PreprocessorParam<C1, C2, FC, CS1, CS2>
-where
-    C1: CurveGroup,
-    C2: CurveGroup,
-    FC: FCircuit<C1::ScalarField>,
-    CS1: CommitmentScheme<C1>,
-    CS2: CommitmentScheme<C2>,
-{
-    pub poseidon_config: PoseidonConfig<C1::ScalarField>,
-    pub F: FC,
-    // cs_params & cf_cs_params: if not provided, will be generated at the preprocess method
-    pub cs_params: Option<CS1::ProverParams>,
-    pub cf_cs_params: Option<CS2::ProverParams>,
 }
 
 #[derive(Debug, Clone)]
@@ -97,8 +82,27 @@ pub struct VerifierParams<
     pub poseidon_config: PoseidonConfig<C1::ScalarField>,
     pub ccs: CCS<C1::ScalarField>,
     pub cf_r1cs: R1CS<C2::ScalarField>,
-    pub cs_params: CS1::ProverParams,
-    pub cf_cs_params: CS2::ProverParams,
+    pub cs_vp: CS1::VerifierParams,
+    pub cf_cs_vp: CS2::VerifierParams,
+}
+
+impl<C1, C2, CS1, CS2> VerifierParams<C1, C2, CS1, CS2>
+where
+    C1: CurveGroup,
+    C2: CurveGroup,
+    CS1: CommitmentScheme<C1>,
+    CS2: CommitmentScheme<C2>,
+{
+    /// returns the hash of the public parameters of HyperNova
+    pub fn pp_hash(&self) -> Result<C1::ScalarField, Error> {
+        pp_hash::<C1, C2, CS1, CS2>(
+            &self.ccs,
+            &self.cf_r1cs,
+            &self.cs_vp,
+            &self.cf_cs_vp,
+            &self.poseidon_config,
+        )
+    }
 }
 
 /// Implements HyperNova+CycleFold's IVC, described in
@@ -130,6 +134,8 @@ where
     pub cf_cs_params: CS2::ProverParams,
     /// F circuit, the circuit that is being folded
     pub F: FC,
+    /// public params hash
+    pub pp_hash: C1::ScalarField,
     pub i: C1::ScalarField,
     /// initial state
     pub z_0: Vec<C1::ScalarField>,
@@ -185,35 +191,49 @@ where
         let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty();
         let cf_r1cs = get_r1cs_from_cs::<C2::ScalarField>(cf_circuit)?;
 
-        // if cs_params & cf_cs_params exist, use them, if not, generate new ones
-        let cs_params: CS1::ProverParams;
-        let cf_cs_params: CS2::ProverParams;
-        if prep_param.cs_params.is_some() && prep_param.cf_cs_params.is_some() {
-            cs_params = prep_param.clone().cs_params.unwrap();
-            cf_cs_params = prep_param.clone().cf_cs_params.unwrap();
+        // if cs params exist, use them, if not, generate new ones
+        let cs_pp: CS1::ProverParams;
+        let cs_vp: CS1::VerifierParams;
+        let cf_cs_pp: CS2::ProverParams;
+        let cf_cs_vp: CS2::VerifierParams;
+        if prep_param.cs_pp.is_some()
+            && prep_param.cf_cs_pp.is_some()
+            && prep_param.cs_vp.is_some()
+            && prep_param.cf_cs_vp.is_some()
+        {
+            cs_pp = prep_param.clone().cs_pp.unwrap();
+            cs_vp = prep_param.clone().cs_vp.unwrap();
+            cf_cs_pp = prep_param.clone().cf_cs_pp.unwrap();
+            cf_cs_vp = prep_param.clone().cf_cs_vp.unwrap();
         } else {
-            (cs_params, _) = CS1::setup(&mut rng, ccs.n - ccs.l - 1).unwrap();
-            (cf_cs_params, _) = CS2::setup(&mut rng, cf_r1cs.A.n_cols - cf_r1cs.l - 1).unwrap();
+            (cs_pp, cs_vp) = CS1::setup(&mut rng, ccs.n - ccs.l - 1)?;
+            (cf_cs_pp, cf_cs_vp) = CS2::setup(&mut rng, cf_r1cs.A.n_cols - cf_r1cs.l - 1)?;
         }
 
         let pp = ProverParams::<C1, C2, CS1, CS2> {
             poseidon_config: prep_param.poseidon_config.clone(),
-            cs_params: cs_params.clone(),
-            cf_cs_params: cf_cs_params.clone(),
+            cs_params: cs_pp.clone(),
+            cf_cs_params: cf_cs_pp.clone(),
             ccs: Some(ccs.clone()),
         };
         let vp = VerifierParams::<C1, C2, CS1, CS2> {
             poseidon_config: prep_param.poseidon_config.clone(),
             ccs,
             cf_r1cs,
-            cs_params: cs_params.clone(),
-            cf_cs_params: cf_cs_params.clone(),
+            cs_vp: cs_vp.clone(),
+            cf_cs_vp: cf_cs_vp.clone(),
         };
         Ok((pp, vp))
     }
 
     /// Initializes the HyperNova+CycleFold's IVC for the given parameters and initial state `z_0`.
-    fn init(pp: &Self::ProverParam, F: FC, z_0: Vec<C1::ScalarField>) -> Result<Self, Error> {
+    fn init(
+        params: (Self::ProverParam, Self::VerifierParam),
+        F: FC,
+        z_0: Vec<C1::ScalarField>,
+    ) -> Result<Self, Error> {
+        let (pp, vp) = params;
+
         // prepare the HyperNova's AugmentedFCircuit and CycleFold's circuits and obtain its CCS
         // and R1CS respectively
         let augmented_f_circuit = AugmentedFCircuit::<C1, C2, GC2, FC>::empty(
@@ -226,6 +246,9 @@ where
         let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty();
         let cf_r1cs = get_r1cs_from_cs::<C2::ScalarField>(cf_circuit)?;
 
+        // compute the public params hash
+        let pp_hash = vp.pp_hash()?;
+
         // setup the dummy instances
         let W_dummy = Witness::<C1::ScalarField>::dummy(&ccs);
         let U_dummy = LCCCS::<C1>::dummy(ccs.l, ccs.t, ccs.s);
@@ -236,11 +259,12 @@ where
         u_dummy.x = vec![
             U_dummy.hash(
                 &pp.poseidon_config,
+                pp_hash,
                 C1::ScalarField::zero(),
                 z_0.clone(),
                 z_0.clone(),
             )?,
-            cf_U_dummy.hash_cyclefold(&pp.poseidon_config)?,
+            cf_U_dummy.hash_cyclefold(&pp.poseidon_config, pp_hash)?,
         ];
 
         // W_dummy=W_0 is a 'dummy witness', all zeroes, but with the size corresponding to the
@@ -255,6 +279,7 @@ where
             cs_params: pp.cs_params.clone(),
             cf_cs_params: pp.cf_cs_params.clone(),
             F,
+            pp_hash,
             i: C1::ScalarField::zero(),
             z_0: z_0.clone(),
             z_i: z_0,
@@ -299,6 +324,7 @@ where
 
         let mut transcript_p: PoseidonTranscript<C1> =
             PoseidonTranscript::<C1>::new(&self.poseidon_config.clone());
+        transcript_p.absorb(&self.pp_hash);
         let (nimfs_proof, U_i1, W_i1, rho_bits) = NIMFS::<C1, PoseidonTranscript<C1>>::prove(
             &mut transcript_p,
             &self.ccs,
@@ -322,6 +348,7 @@ where
 
         let u_i1_x = U_i1.hash(
             &self.poseidon_config,
+            self.pp_hash,
             self.i + C1::ScalarField::one(),
             self.z_0.clone(),
             z_i1.clone(),
@@ -331,13 +358,16 @@ where
         let cf_u_i1_x: C1::ScalarField;
 
         if self.i == C1::ScalarField::zero() {
-            cf_u_i1_x = self.cf_U_i.hash_cyclefold(&self.poseidon_config)?;
+            cf_u_i1_x = self
+                .cf_U_i
+                .hash_cyclefold(&self.poseidon_config, self.pp_hash)?;
 
             augmented_f_circuit = AugmentedFCircuit::<C1, C2, GC2, FC> {
                 _c2: PhantomData,
                 _gc2: PhantomData,
                 poseidon_config: self.poseidon_config.clone(),
                 ccs: self.ccs.clone(),
+                pp_hash: Some(self.pp_hash),
                 i: Some(C1::ScalarField::zero()),
                 i_usize: Some(0),
                 z_0: Some(self.z_0.clone()),
@@ -383,19 +413,21 @@ where
                     &self.poseidon_config,
                     self.cf_r1cs.clone(),
                     self.cf_cs_params.clone(),
+                    self.pp_hash,
                     self.cf_W_i.clone(), // CycleFold running instance witness
                     self.cf_U_i.clone(), // CycleFold running instance
                     cf_u_i_x,
                     cf_circuit,
                 )?;
 
-            cf_u_i1_x = cf_U_i1.hash_cyclefold(&self.poseidon_config)?;
+            cf_u_i1_x = cf_U_i1.hash_cyclefold(&self.poseidon_config, self.pp_hash)?;
 
             augmented_f_circuit = AugmentedFCircuit::<C1, C2, GC2, FC> {
                 _c2: PhantomData,
                 _gc2: PhantomData,
                 poseidon_config: self.poseidon_config.clone(),
                 ccs: self.ccs.clone(),
+                pp_hash: Some(self.pp_hash),
                 i: Some(self.i),
                 i_usize: Some(i_usize),
                 z_0: Some(self.z_0.clone()),
@@ -495,14 +527,16 @@ where
             return Err(Error::IVCVerificationFail);
         }
 
+        let pp_hash = vp.pp_hash()?;
+
         // check that u_i's output points to the running instance
         // u_i.X[0] == H(i, z_0, z_i, U_i)
-        let expected_u_i_x = U_i.hash(&vp.poseidon_config, num_steps, z_0, z_i.clone())?;
+        let expected_u_i_x = U_i.hash(&vp.poseidon_config, pp_hash, num_steps, z_0, z_i.clone())?;
         if expected_u_i_x != u_i.x[0] {
             return Err(Error::IVCVerificationFail);
         }
         // u_i.X[1] == H(cf_U_i)
-        let expected_cf_u_i_x = cf_U_i.hash_cyclefold(&vp.poseidon_config)?;
+        let expected_cf_u_i_x = cf_U_i.hash_cyclefold(&vp.poseidon_config, pp_hash)?;
         if expected_cf_u_i_x != u_i.x[1] {
             return Err(Error::IVCVerificationFail);
         }
@@ -557,16 +591,20 @@ mod tests {
         type HN<CS1, CS2> =
             HyperNova<Projective, GVar, Projective2, GVar2, CubicFCircuit<Fr>, CS1, CS2>;
 
-        let prep_param = PreprocessorParam::<Projective, Projective2, CubicFCircuit<Fr>, CS1, CS2> {
-            poseidon_config,
-            F: F_circuit,
-            cs_params: None,
-            cf_cs_params: None,
-        };
+        let prep_param =
+            PreprocessorParam::<Projective, Projective2, CubicFCircuit<Fr>, CS1, CS2>::new(
+                poseidon_config.clone(),
+                F_circuit,
+            );
         let (prover_params, verifier_params) = HN::preprocess(&mut rng, &prep_param).unwrap();
 
         let z_0 = vec![Fr::from(3_u32)];
-        let mut hypernova = HN::init(&prover_params, F_circuit, z_0.clone()).unwrap();
+        let mut hypernova = HN::init(
+            (prover_params, verifier_params.clone()),
+            F_circuit,
+            z_0.clone(),
+        )
+        .unwrap();
 
         let num_steps: usize = 3;
         for _ in 0..num_steps {

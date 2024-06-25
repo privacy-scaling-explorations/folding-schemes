@@ -3,7 +3,7 @@ use ark_ec::{CurveGroup, Group};
 use ark_std::{One, Zero};
 
 use super::{CommittedInstance, Witness};
-use crate::ccs::r1cs::R1CS;
+use crate::arith::{r1cs::R1CS, Arith};
 use crate::Error;
 
 /// NovaR1CS extends R1CS methods with Nova specific methods

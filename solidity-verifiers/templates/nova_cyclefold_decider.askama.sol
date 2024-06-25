@@ -78,10 +78,11 @@ contract NovaDecider is Groth16Verifier, KZG10Verifier {
         // from gamma_abc_len, we subtract 1. 
         uint256[{{ public_inputs_len - 1 }}] memory public_inputs; 
 
-        public_inputs[0] = i_z0_zi[0];
+        public_inputs[0] = {{pp_hash}};
+        public_inputs[1] = i_z0_zi[0];
 
         for (uint i = 0; i < {{ z_len * 2 }}; i++) {
-            public_inputs[1 + i] = i_z0_zi[1 + i];
+            public_inputs[2 + i] = i_z0_zi[1 + i];
         }
 
         {
@@ -91,9 +92,9 @@ contract NovaDecider is Groth16Verifier, KZG10Verifier {
             uint256 x0 = rlc(U_i_x_u_i_cmW[0], U_i_u_u_i_u_r[2], u_i_x_cmT[0]);
             uint256 x1 = rlc(U_i_x_u_i_cmW[1], U_i_u_u_i_u_r[2], u_i_x_cmT[1]);
 
-            public_inputs[{{ z_len * 2 + 1 }}] = u;
-            public_inputs[{{ z_len * 2 + 2 }}] = x0;
-            public_inputs[{{ z_len * 2 + 3 }}] = x1;
+            public_inputs[{{ z_len * 2 + 2 }}] = u;
+            public_inputs[{{ z_len * 2 + 3 }}] = x0;
+            public_inputs[{{ z_len * 2 + 4 }}] = x1;
         }
 
         {
@@ -106,8 +107,8 @@ contract NovaDecider is Groth16Verifier, KZG10Verifier {
                 uint256[{{num_limbs}}] memory cmE_y_limbs = LimbsDecomposition.decompose(cmE[1]);
             
                 for (uint8 k = 0; k < {{num_limbs}}; k++) {
-                    public_inputs[{{ z_len * 2 + 4 }} + k] = cmE_x_limbs[k];
-                    public_inputs[{{ z_len * 2 + 4 + num_limbs }} + k] = cmE_y_limbs[k];
+                    public_inputs[{{ z_len * 2 + 5 }} + k] = cmE_x_limbs[k];
+                    public_inputs[{{ z_len * 2 + 5 + num_limbs }} + k] = cmE_y_limbs[k];
                 }
             }
 
@@ -124,8 +125,8 @@ contract NovaDecider is Groth16Verifier, KZG10Verifier {
                 uint256[{{num_limbs}}] memory cmW_y_limbs = LimbsDecomposition.decompose(cmW[1]);
         
                 for (uint8 k = 0; k < {{num_limbs}}; k++) {
-                    public_inputs[{{ z_len * 2 + 4 + num_limbs * 2 }} + k] = cmW_x_limbs[k];
-                    public_inputs[{{ z_len * 2 + 4 + num_limbs * 3 }} + k] = cmW_y_limbs[k];
+                    public_inputs[{{ z_len * 2 + 5 + num_limbs * 2 }} + k] = cmW_x_limbs[k];
+                    public_inputs[{{ z_len * 2 + 5 + num_limbs * 3 }} + k] = cmW_y_limbs[k];
                 }
             }
         
@@ -134,10 +135,10 @@ contract NovaDecider is Groth16Verifier, KZG10Verifier {
 
         {
             // add challenges
-            public_inputs[{{ z_len * 2 + 4 + num_limbs * 4 }}] = challenge_W_challenge_E_kzg_evals[0];
-            public_inputs[{{ z_len * 2 + 4 + num_limbs * 4 + 1 }}] = challenge_W_challenge_E_kzg_evals[1];
-            public_inputs[{{ z_len * 2 + 4 + num_limbs * 4 + 2 }}] = challenge_W_challenge_E_kzg_evals[2];
-            public_inputs[{{ z_len * 2 + 4 + num_limbs * 4 + 3 }}] = challenge_W_challenge_E_kzg_evals[3];
+            public_inputs[{{ z_len * 2 + 5 + num_limbs * 4 }}] = challenge_W_challenge_E_kzg_evals[0];
+            public_inputs[{{ z_len * 2 + 5 + num_limbs * 4 + 1 }}] = challenge_W_challenge_E_kzg_evals[1];
+            public_inputs[{{ z_len * 2 + 5 + num_limbs * 4 + 2 }}] = challenge_W_challenge_E_kzg_evals[2];
+            public_inputs[{{ z_len * 2 + 5 + num_limbs * 4 + 3 }}] = challenge_W_challenge_E_kzg_evals[3];
         
             uint256[{{num_limbs}}] memory cmT_x_limbs;
             uint256[{{num_limbs}}] memory cmT_y_limbs;
@@ -146,8 +147,8 @@ contract NovaDecider is Groth16Verifier, KZG10Verifier {
             cmT_y_limbs = LimbsDecomposition.decompose(u_i_x_cmT[3]);
         
             for (uint8 k = 0; k < {{num_limbs}}; k++) {
-                public_inputs[{{ z_len * 2 + 4 + num_limbs * 4 }} + 4 + k] = cmT_x_limbs[k]; 
-                public_inputs[{{ z_len * 2 + 4 + num_limbs * 5}} + 4 + k] = cmT_y_limbs[k];
+                public_inputs[{{ z_len * 2 + 5 + num_limbs * 4 }} + 4 + k] = cmT_x_limbs[k]; 
+                public_inputs[{{ z_len * 2 + 5 + num_limbs * 5}} + 4 + k] = cmT_y_limbs[k];
             }
         
             // last element of the groth16 proof's public inputs is `r`

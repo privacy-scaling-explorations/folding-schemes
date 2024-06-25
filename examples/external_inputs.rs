@@ -187,10 +187,11 @@ fn main() {
 
     println!("Prepare Nova's ProverParams & VerifierParams");
     let nova_preprocess_params = PreprocessorParam::new(poseidon_config, F_circuit.clone());
-    let (nova_pp, nova_vp) = N::preprocess(&mut rng, &nova_preprocess_params).unwrap();
+    let nova_params = N::preprocess(&mut rng, &nova_preprocess_params).unwrap();
 
     println!("Initialize FoldingScheme");
-    let mut folding_scheme = N::init(&nova_pp, F_circuit, initial_state.clone()).unwrap();
+    let mut folding_scheme =
+        N::init(nova_params.clone(), F_circuit, initial_state.clone()).unwrap();
 
     // compute a step of the IVC
     for (i, external_inputs_at_step) in external_inputs.iter().enumerate() {
@@ -210,7 +211,7 @@ fn main() {
 
     println!("Run the Nova's IVC verifier");
     N::verify(
-        nova_vp,
+        nova_params.1,
         initial_state.clone(),
         folding_scheme.state(), // latest state
         Fr::from(num_steps as u32),

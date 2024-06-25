@@ -94,6 +94,7 @@ where
     pub fn hash(
         self,
         crh_params: &CRHParametersVar<CF1<C>>,
+        pp_hash: FpVar<CF1<C>>,
         i: FpVar<CF1<C>>,
         z_0: Vec<FpVar<CF1<C>>>,
         z_i: Vec<FpVar<CF1<C>>>,
@@ -105,7 +106,7 @@ where
             self.cmW.to_constraint_field()?,
         ]
         .concat();
-        let input = [vec![i], z_0, z_i, U_vec.clone()].concat();
+        let input = [vec![pp_hash, i], z_0, z_i, U_vec.clone()].concat();
         Ok((
             CRHGadget::<C::ScalarField>::evaluate(crh_params, &input)?,
             U_vec,
@@ -175,6 +176,7 @@ where
 {
     pub fn get_challenge_native(
         poseidon_config: &PoseidonConfig<C::ScalarField>,
+        pp_hash: C::ScalarField, // public params hash
         U_i: CommittedInstance<C>,
         u_i: CommittedInstance<C>,
         cmT: C,
@@ -187,6 +189,7 @@ where
 
         let mut sponge = PoseidonSponge::<C::ScalarField>::new(poseidon_config);
         let input = vec![
+            vec![pp_hash],
             vec![U_i.u],
             U_i.x.clone(),
             U_cmE_x,
@@ -212,6 +215,7 @@ where
     pub fn get_challenge_gadget(
         cs: ConstraintSystemRef<C::ScalarField>,
         poseidon_config: &PoseidonConfig<C::ScalarField>,
+        pp_hash: FpVar<CF1<C>>,      // public params hash
         U_i_vec: Vec<FpVar<CF1<C>>>, // apready processed input, so we don't have to recompute these values
         u_i: CommittedInstanceVar<C>,
         cmT: NonNativeAffineVar<C>,
@@ -219,6 +223,7 @@ where
         let mut sponge = PoseidonSpongeVar::<C::ScalarField>::new(cs, poseidon_config);
 
         let input: Vec<FpVar<C::ScalarField>> = [
+            vec![pp_hash],
             U_i_vec,
             vec![u_i.u.clone()],
             u_i.x.clone(),
@@ -247,6 +252,7 @@ pub struct AugmentedFCircuit<
 {
     pub _gc2: PhantomData<GC2>,
     pub poseidon_config: PoseidonConfig<CF1<C1>>,
+    pub pp_hash: Option<CF1<C1>>,
     pub i: Option<CF1<C1>>,
     pub i_usize: Option<usize>,
     pub z_0: Option<Vec<C1::ScalarField>>,
@@ -280,6 +286,7 @@ where
         Self {
             _gc2: PhantomData,
             poseidon_config: poseidon_config.clone(),
+            pp_hash: None,
             i: None,
             i_usize: None,
             z_0: None,
@@ -317,6 +324,9 @@ where
     for<'a> &'a GC2: GroupOpsBounds<'a, C2, GC2>,
 {
     fn generate_constraints(self, cs: ConstraintSystemRef<CF1<C1>>) -> Result<(), SynthesisError> {
+        let pp_hash = FpVar::<CF1<C1>>::new_witness(cs.clone(), || {
+            Ok(self.pp_hash.unwrap_or_else(CF1::<C1>::zero))
+        })?;
         let i = FpVar::<CF1<C1>>::new_witness(cs.clone(), || {
             Ok(self.i.unwrap_or_else(CF1::<C1>::zero))
         })?;
@@ -373,11 +383,15 @@ where
         // Primary Part
         // P.1. Compute u_i.x
         // u_i.x[0] = H(i, z_0, z_i, U_i)
-        let (u_i_x, U_i_vec) =
-            U_i.clone()
-                .hash(&crh_params, i.clone(), z_0.clone(), z_i.clone())?;
+        let (u_i_x, U_i_vec) = U_i.clone().hash(
+            &crh_params,
+            pp_hash.clone(),
+            i.clone(),
+            z_0.clone(),
+            z_i.clone(),
+        )?;
         // u_i.x[1] = H(cf_U_i)
-        let (cf_u_i_x, cf_U_i_vec) = cf_U_i.clone().hash(&crh_params)?;
+        let (cf_u_i_x, cf_U_i_vec) = cf_U_i.clone().hash(&crh_params, pp_hash.clone())?;
 
         // P.2. Construct u_i
         let u_i = CommittedInstanceVar {
@@ -399,6 +413,7 @@ where
         let r_bits = ChallengeGadget::<C1>::get_challenge_gadget(
             cs.clone(),
             &self.poseidon_config,
+            pp_hash.clone(),
             U_i_vec,
             u_i.clone(),
             cmT.clone(),
@@ -424,12 +439,14 @@ where
         // Non-base case: u_{i+1}.x[0] == H((i+1, z_0, z_{i+1}, U_{i+1})
         let (u_i1_x, _) = U_i1.clone().hash(
             &crh_params,
+            pp_hash.clone(),
             i + FpVar::<CF1<C1>>::one(),
             z_0.clone(),
             z_i1.clone(),
         )?;
         let (u_i1_x_base, _) = CommittedInstanceVar::new_constant(cs.clone(), u_dummy)?.hash(
             &crh_params,
+            pp_hash.clone(),
             FpVar::<CF1<C1>>::one(),
             z_0.clone(),
             z_i1.clone(),
@@ -484,6 +501,7 @@ where
         let cf1_r_bits = CycleFoldChallengeGadget::<C2, GC2>::get_challenge_gadget(
             cs.clone(),
             &self.poseidon_config,
+            pp_hash.clone(),
             cf_U_i_vec,
             cf1_u_i.clone(),
             cf1_cmT.clone(),
@@ -507,6 +525,7 @@ where
         let cf2_r_bits = CycleFoldChallengeGadget::<C2, GC2>::get_challenge_gadget(
             cs.clone(),
             &self.poseidon_config,
+            pp_hash.clone(),
             cf1_U_i1.to_constraint_field()?,
             cf2_u_i.clone(),
             cf2_cmT.clone(),
@@ -528,10 +547,10 @@ where
         // P.4.b compute and check the second output of F'
         // Base case: u_{i+1}.x[1] == H(cf_U_{\bot})
         // Non-base case: u_{i+1}.x[1] == H(cf_U_{i+1})
-        let (cf_u_i1_x, _) = cf_U_i1.clone().hash(&crh_params)?;
+        let (cf_u_i1_x, _) = cf_U_i1.clone().hash(&crh_params, pp_hash.clone())?;
         let (cf_u_i1_x_base, _) =
             CycleFoldCommittedInstanceVar::new_constant(cs.clone(), cf_u_dummy)?
-                .hash(&crh_params)?;
+                .hash(&crh_params, pp_hash)?;
         let cf_x = FpVar::new_input(cs.clone(), || {
             Ok(self.cf_x.unwrap_or(cf_u_i1_x_base.value()?))
         })?;
@@ -609,6 +628,7 @@ pub mod tests {
     fn test_committed_instance_hash() {
         let mut rng = ark_std::test_rng();
         let poseidon_config = poseidon_canonical_config::<Fr>();
+        let pp_hash = Fr::from(42u32); // only for test
 
         let i = Fr::from(3_u32);
         let z_0 = vec![Fr::from(3_u32)];
@@ -622,11 +642,12 @@ pub mod tests {
 
         // compute the CommittedInstance hash natively
         let h = ci
-            .hash(&poseidon_config, i, z_0.clone(), z_i.clone())
+            .hash(&poseidon_config, pp_hash, i, z_0.clone(), z_i.clone())
             .unwrap();
 
         let cs = ConstraintSystem::<Fr>::new_ref();
 
+        let pp_hashVar = FpVar::<Fr>::new_witness(cs.clone(), || Ok(pp_hash)).unwrap();
         let iVar = FpVar::<Fr>::new_witness(cs.clone(), || Ok(i)).unwrap();
         let z_0Var = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_0.clone())).unwrap();
         let z_iVar = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_i.clone())).unwrap();
@@ -636,7 +657,9 @@ pub mod tests {
         let crh_params = CRHParametersVar::<Fr>::new_constant(cs.clone(), poseidon_config).unwrap();
 
         // compute the CommittedInstance hash in-circuit
-        let (hVar, _) = ciVar.hash(&crh_params, iVar, z_0Var, z_iVar).unwrap();
+        let (hVar, _) = ciVar
+            .hash(&crh_params, pp_hashVar, iVar, z_0Var, z_iVar)
+            .unwrap();
         assert!(cs.is_satisfied().unwrap());
 
         // check that the natively computed and in-circuit computed hashes match
@@ -663,9 +686,12 @@ pub mod tests {
         };
         let cmT = Projective::rand(&mut rng);
 
+        let pp_hash = Fr::from(42u32); // only for testing
+
         // compute the challenge natively
         let r_bits = ChallengeGadget::<Projective>::get_challenge_native(
             &poseidon_config,
+            pp_hash,
             U_i.clone(),
             u_i.clone(),
             cmT,
@@ -674,6 +700,7 @@ pub mod tests {
         let r = Fr::from_bigint(BigInteger::from_bits_le(&r_bits)).unwrap();
 
         let cs = ConstraintSystem::<Fr>::new_ref();
+        let pp_hashVar = FpVar::<Fr>::new_witness(cs.clone(), || Ok(pp_hash)).unwrap();
         let u_iVar =
             CommittedInstanceVar::<Projective>::new_witness(cs.clone(), || Ok(u_i.clone()))
                 .unwrap();
@@ -693,6 +720,7 @@ pub mod tests {
         let r_bitsVar = ChallengeGadget::<Projective>::get_challenge_gadget(
             cs.clone(),
             &poseidon_config,
+            pp_hashVar,
             U_iVar_vec,
             u_iVar,
             cmTVar,

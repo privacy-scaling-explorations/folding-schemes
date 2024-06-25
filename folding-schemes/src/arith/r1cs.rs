@@ -1,10 +1,11 @@
 use ark_ff::PrimeField;
 use ark_relations::r1cs::ConstraintSystem;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::Rng;
 
+use super::Arith;
 use crate::utils::vec::{hadamard, mat_vec_mul, vec_add, vec_scalar_mul, SparseMatrix};
 use crate::Error;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 #[derive(Debug, Clone, Eq, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct R1CS<F: PrimeField> {
@@ -12,6 +13,29 @@ pub struct R1CS<F: PrimeField> {
     pub A: SparseMatrix<F>,
     pub B: SparseMatrix<F>,
     pub C: SparseMatrix<F>,
+}
+
+impl<F: PrimeField> Arith<F> for R1CS<F> {
+    /// check that a R1CS structure is satisfied by a z vector. Only for testing.
+    fn check_relation(&self, z: &[F]) -> Result<(), Error> {
+        let Az = mat_vec_mul(&self.A, z)?;
+        let Bz = mat_vec_mul(&self.B, z)?;
+        let Cz = mat_vec_mul(&self.C, z)?;
+        let AzBz = hadamard(&Az, &Bz)?;
+        if AzBz != Cz {
+            return Err(Error::NotSatisfied);
+        }
+        Ok(())
+    }
+
+    fn params_to_bytes(&self) -> Vec<u8> {
+        [
+            self.l.to_le_bytes(),
+            self.A.n_rows.to_le_bytes(),
+            self.A.n_cols.to_le_bytes(),
+        ]
+        .concat()
+    }
 }
 
 impl<F: PrimeField> R1CS<F> {
@@ -27,19 +51,6 @@ impl<F: PrimeField> R1CS<F> {
     /// returns a tuple containing (w, x) (witness and public inputs respectively)
     pub fn split_z(&self, z: &[F]) -> (Vec<F>, Vec<F>) {
         (z[self.l + 1..].to_vec(), z[1..self.l + 1].to_vec())
-    }
-
-    /// check that a R1CS structure is satisfied by a z vector. Only for testing.
-    pub fn check_relation(&self, z: &[F]) -> Result<(), Error> {
-        let Az = mat_vec_mul(&self.A, z)?;
-        let Bz = mat_vec_mul(&self.B, z)?;
-        let Cz = mat_vec_mul(&self.C, z)?;
-        let AzBz = hadamard(&Az, &Bz)?;
-        if AzBz != Cz {
-            return Err(Error::NotSatisfied);
-        }
-
-        Ok(())
     }
 
     /// converts the R1CS instance into a RelaxedR1CS as described in

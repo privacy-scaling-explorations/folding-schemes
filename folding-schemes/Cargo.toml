@@ -23,6 +23,7 @@ num-integer = "0.1"
 color-eyre = "=0.6.2"
 ark-bn254 = {version="0.4.0"}
 ark-groth16 = { version = "^0.4.0" }
+sha3 = "0.10"
 
 # tmp imports for espresso's sumcheck
 espresso_subroutines = {git="https://github.com/EspressoSystems/hyperplonk", package="subroutines"}

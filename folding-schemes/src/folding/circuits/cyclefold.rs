@@ -30,7 +30,7 @@ use ark_std::{One, Zero};
 use core::{borrow::Borrow, marker::PhantomData};
 
 use super::{nonnative::uint::NonNativeUintVar, CF2};
-use crate::ccs::r1cs::{extract_w_x, R1CS};
+use crate::arith::r1cs::{extract_w_x, R1CS};
 use crate::commitment::CommitmentScheme;
 use crate::constants::N_BITS_RO;
 use crate::folding::nova::{nifs::NIFS, CommittedInstance, Witness};
@@ -127,9 +127,13 @@ where
     pub fn hash(
         self,
         crh_params: &CRHParametersVar<CF2<C>>,
+        pp_hash: FpVar<CF2<C>>, // public params hash
     ) -> Result<(FpVar<CF2<C>>, Vec<FpVar<CF2<C>>>), SynthesisError> {
         let U_vec = self.to_constraint_field()?;
-        Ok((CRHGadget::evaluate(crh_params, &U_vec)?, U_vec))
+        Ok((
+            CRHGadget::evaluate(crh_params, &[vec![pp_hash], U_vec.clone()].concat())?,
+            U_vec,
+        ))
     }
 }
 
@@ -252,6 +256,7 @@ where
 {
     pub fn get_challenge_native(
         poseidon_config: &PoseidonConfig<C::BaseField>,
+        pp_hash: C::BaseField, // public params hash
         U_i: CommittedInstance<C>,
         u_i: CommittedInstance<C>,
         cmT: C,
@@ -276,7 +281,7 @@ where
         // to save constraints for sponge.squeeze_bits in the corresponding circuit
         let is_inf = U_cm_is_inf * CF2::<C>::from(8u8) + u_cm_is_inf.double() + cmT_is_inf;
 
-        let input = [U_vec, u_vec, vec![cmT_x, cmT_y, is_inf]].concat();
+        let input = [vec![pp_hash], U_vec, u_vec, vec![cmT_x, cmT_y, is_inf]].concat();
         sponge.absorb(&input);
         let bits = sponge.squeeze_bits(N_BITS_RO);
         Ok(bits)
@@ -286,6 +291,7 @@ where
     pub fn get_challenge_gadget(
         cs: ConstraintSystemRef<C::BaseField>,
         poseidon_config: &PoseidonConfig<C::BaseField>,
+        pp_hash: FpVar<C::BaseField>, // public params hash
         mut U_i_vec: Vec<FpVar<C::BaseField>>,
         u_i: CycleFoldCommittedInstanceVar<C, GC>,
         cmT: GC,
@@ -303,7 +309,7 @@ where
         // to save constraints for sponge.squeeze_bits
         let is_inf = U_cm_is_inf * CF2::<C>::from(8u8) + u_cm_is_inf.double()? + cmT_is_inf;
 
-        let input = [U_i_vec, u_i_vec, cmT_vec, vec![is_inf]].concat();
+        let input = [vec![pp_hash], U_i_vec, u_i_vec, cmT_vec, vec![is_inf]].concat();
         sponge.absorb(&input)?;
         let bits = sponge.squeeze_bits(N_BITS_RO)?;
         Ok(bits)
@@ -372,13 +378,15 @@ where
     }
 }
 
-/// Folds the given cyclefold circuit and its instances. This method is isolated from any folding
+/// Folds the given cyclefold circuit and its instances. This method is abstracted from any folding
 /// scheme struct because it is used both by Nova & HyperNova's CycleFold.
 #[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 pub fn fold_cyclefold_circuit<C1, GC1, C2, GC2, FC, CS1, CS2>(
     poseidon_config: &PoseidonConfig<C1::ScalarField>,
     cf_r1cs: R1CS<C2::ScalarField>,
     cf_cs_params: CS2::ProverParams,
+    pp_hash: C1::ScalarField,      // public params hash
     cf_W_i: Witness<C2>,           // witness of the running instance
     cf_U_i: CommittedInstance<C2>, // running instance
     cf_u_i_x: Vec<C2::ScalarField>,
@@ -438,6 +446,7 @@ where
 
     let cf_r_bits = CycleFoldChallengeGadget::<C2, GC2>::get_challenge_native(
         poseidon_config,
+        pp_hash,
         cf_U_i.clone(),
         cf_u_i.clone(),
         cf_cmT,
@@ -594,8 +603,10 @@ pub mod tests {
         let cmT = Projective::rand(&mut rng);
 
         // compute the challenge natively
+        let pp_hash = Fq::from(42u32); // only for test
         let r_bits = CycleFoldChallengeGadget::<Projective, GVar>::get_challenge_native(
             &poseidon_config,
+            pp_hash,
             U_i.clone(),
             u_i.clone(),
             cmT,
@@ -615,9 +626,11 @@ pub mod tests {
             .unwrap();
         let cmTVar = GVar::new_witness(cs.clone(), || Ok(cmT)).unwrap();
 
+        let pp_hashVar = FpVar::<Fq>::new_witness(cs.clone(), || Ok(pp_hash)).unwrap();
         let r_bitsVar = CycleFoldChallengeGadget::<Projective, GVar>::get_challenge_gadget(
             cs.clone(),
             &poseidon_config,
+            pp_hashVar,
             U_iVar.to_constraint_field().unwrap(),
             u_iVar,
             cmTVar,
@@ -645,7 +658,8 @@ pub mod tests {
                 .take(CF_IO_LEN)
                 .collect(),
         };
-        let h = U_i.hash_cyclefold(&poseidon_config).unwrap();
+        let pp_hash = Fq::from(42u32); // only for test
+        let h = U_i.hash_cyclefold(&poseidon_config, pp_hash).unwrap();
 
         let cs = ConstraintSystem::<Fq>::new_ref();
         let U_iVar =
@@ -653,8 +667,12 @@ pub mod tests {
                 Ok(U_i.clone())
             })
             .unwrap();
+        let pp_hashVar = FpVar::<Fq>::new_witness(cs.clone(), || Ok(pp_hash)).unwrap();
         let (hVar, _) = U_iVar
-            .hash(&CRHParametersVar::new_constant(cs.clone(), poseidon_config).unwrap())
+            .hash(
+                &CRHParametersVar::new_constant(cs.clone(), poseidon_config).unwrap(),
+                pp_hashVar,
+            )
             .unwrap();
         hVar.enforce_equal(&FpVar::new_witness(cs.clone(), || Ok(h)).unwrap())
             .unwrap();
