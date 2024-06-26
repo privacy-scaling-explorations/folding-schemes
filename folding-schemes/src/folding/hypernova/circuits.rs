@@ -44,7 +44,7 @@ use crate::frontend::FCircuit;
 use crate::utils::virtual_polynomial::VPAuxInfo;
 use crate::Error;
 use crate::{
-    ccs::{r1cs::extract_r1cs, CCS},
+    arith::{ccs::CCS, r1cs::extract_r1cs},
     transcript::{
         poseidon::{PoseidonTranscript, PoseidonTranscriptVar},
         Transcript, TranscriptVar,
@@ -819,10 +819,12 @@ mod tests {
 
     use super::*;
     use crate::{
-        ccs::{
+        arith::{
+            ccs::{
+                tests::{get_test_ccs, get_test_z},
+                CCS,
+            },
             r1cs::extract_w_x,
-            tests::{get_test_ccs, get_test_z},
-            CCS,
         },
         commitment::{pedersen::Pedersen, CommitmentScheme},
         folding::{
@@ -1074,7 +1076,7 @@ mod tests {
         let cs = ConstraintSystem::<Fr>::new_ref();
 
         let crh_params = CRHParametersVar::<Fr>::new_constant(cs.clone(), poseidon_config).unwrap();
-        let pp_hashVar = FpVar::<Fr>::new_witness(cs.clone(), || Ok(pp_hash.clone())).unwrap();
+        let pp_hashVar = FpVar::<Fr>::new_witness(cs.clone(), || Ok(pp_hash)).unwrap();
         let iVar = FpVar::<Fr>::new_witness(cs.clone(), || Ok(i)).unwrap();
         let z_0Var = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_0.clone())).unwrap();
         let z_iVar = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_i.clone())).unwrap();

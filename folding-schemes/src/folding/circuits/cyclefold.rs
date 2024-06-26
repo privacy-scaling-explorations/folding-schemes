@@ -30,7 +30,7 @@ use ark_std::{One, Zero};
 use core::{borrow::Borrow, marker::PhantomData};
 
 use super::{nonnative::uint::NonNativeUintVar, CF2};
-use crate::ccs::r1cs::{extract_w_x, R1CS};
+use crate::arith::r1cs::{extract_w_x, R1CS};
 use crate::commitment::CommitmentScheme;
 use crate::constants::N_BITS_RO;
 use crate::folding::nova::{nifs::NIFS, CommittedInstance, Witness};
@@ -378,9 +378,10 @@ where
     }
 }
 
-/// Folds the given cyclefold circuit and its instances. This method is isolated from any folding
+/// Folds the given cyclefold circuit and its instances. This method is abstracted from any folding
 /// scheme struct because it is used both by Nova & HyperNova's CycleFold.
 #[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 pub fn fold_cyclefold_circuit<C1, GC1, C2, GC2, FC, CS1, CS2>(
     poseidon_config: &PoseidonConfig<C1::ScalarField>,
     cf_r1cs: R1CS<C2::ScalarField>,

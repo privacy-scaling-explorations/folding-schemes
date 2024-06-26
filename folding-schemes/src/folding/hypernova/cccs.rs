@@ -7,7 +7,7 @@ use std::sync::Arc;
 use ark_std::rand::Rng;
 
 use super::Witness;
-use crate::ccs::CCS;
+use crate::arith::{ccs::CCS, Arith};
 use crate::commitment::CommitmentScheme;
 use crate::utils::mle::dense_vec_to_dense_mle;
 use crate::utils::vec::mat_vec_mul;
@@ -125,7 +125,7 @@ pub mod tests {
     use ark_std::UniformRand;
 
     use super::*;
-    use crate::ccs::tests::{get_test_ccs, get_test_z};
+    use crate::arith::ccs::tests::{get_test_ccs, get_test_z};
     use crate::utils::hypercube::BooleanHypercube;
 
     /// Do some sanity checks on q(x). It's a multivariable polynomial and it should evaluate to zero inside the

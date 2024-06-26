@@ -104,7 +104,7 @@ pub fn dense_vec_to_mle<F: PrimeField>(n_vars: usize, v: &[F]) -> SparseMultilin
 mod tests {
     use super::*;
     use crate::{
-        ccs::tests::get_test_z,
+        arith::ccs::tests::get_test_z,
         utils::multilinear_polynomial::fix_variables,
         utils::multilinear_polynomial::tests::fix_last_variables,
         utils::{hypercube::BooleanHypercube, vec::tests::to_F_matrix},

@@ -14,7 +14,7 @@ use super::{circuits::AugmentedFCircuit, Nova, ProverParams};
 use super::{CommittedInstance, Witness};
 use crate::folding::circuits::{cyclefold::CycleFoldCircuit, CF2};
 use crate::{
-    ccs::r1cs::extract_r1cs, commitment::CommitmentScheme, folding::circuits::CF1,
+    arith::r1cs::extract_r1cs, commitment::CommitmentScheme, folding::circuits::CF1,
     frontend::FCircuit,
 };
 

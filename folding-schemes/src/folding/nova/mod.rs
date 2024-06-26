@@ -13,19 +13,18 @@ use ark_std::fmt::Debug;
 use ark_std::rand::RngCore;
 use ark_std::{One, Zero};
 use core::marker::PhantomData;
-use sha3::{Digest, Sha3_256};
 
-use crate::ccs::r1cs::{extract_r1cs, extract_w_x, R1CS};
+use crate::arith::r1cs::{extract_r1cs, extract_w_x, R1CS};
 use crate::commitment::CommitmentScheme;
-use crate::folding::circuits::cyclefold::{fold_cyclefold_circuit, CycleFoldCircuit};
 use crate::folding::circuits::{
+    cyclefold::{fold_cyclefold_circuit, CycleFoldCircuit},
     nonnative::{
         affine::nonnative_affine_to_field_elements, uint::nonnative_field_to_field_elements,
     },
     CF2,
 };
 use crate::frontend::FCircuit;
-use crate::utils::{get_cm_coordinates, vec::is_zero_vec};
+use crate::utils::{get_cm_coordinates, pp_hash, vec::is_zero_vec};
 use crate::Error;
 use crate::FoldingScheme;
 
@@ -265,38 +264,15 @@ where
     CS1: CommitmentScheme<C1>,
     CS2: CommitmentScheme<C2>,
 {
+    /// returns the hash of the public parameters of Nova
     pub fn pp_hash(&self) -> Result<C1::ScalarField, Error> {
-        // hash public params
-        let mut hasher = Sha3_256::new();
-        // Fr & Fq modulus bit size
-        hasher.update(C1::ScalarField::MODULUS_BIT_SIZE.to_le_bytes());
-        hasher.update(C2::ScalarField::MODULUS_BIT_SIZE.to_le_bytes());
-        // AugmentedFCircuit R1CS params
-        hasher.update(self.r1cs.l.to_le_bytes());
-        hasher.update(self.r1cs.A.n_rows.to_le_bytes());
-        hasher.update(self.r1cs.A.n_cols.to_le_bytes());
-        // CycleFold Circuit R1CS params
-        hasher.update(self.cf_r1cs.l.to_le_bytes());
-        hasher.update(self.cf_r1cs.A.n_rows.to_le_bytes());
-        hasher.update(self.cf_r1cs.A.n_cols.to_le_bytes());
-        // cs_vp & cf_cs_vp (commitments setup)
-        let mut cs_vp_bytes = Vec::new();
-        self.cs_vp.serialize_uncompressed(&mut cs_vp_bytes)?;
-        hasher.update(cs_vp_bytes);
-        let mut cf_cs_vp_bytes = Vec::new();
-        self.cf_cs_vp.serialize_uncompressed(&mut cf_cs_vp_bytes)?;
-        hasher.update(cf_cs_vp_bytes);
-        // poseidon params
-        // TODO
-        // let mut poseidon_config_bytes = Vec::new();
-        // prep_param
-        //     .poseidon_config
-        //     .serialize_uncompressed(&mut poseidon_config_bytes)?;
-        // hasher.update(poseidon_config_bytes);
-        let public_params_hash = hasher.finalize();
-        Ok(C1::ScalarField::from_le_bytes_mod_order(
-            &public_params_hash,
-        ))
+        pp_hash::<C1, C2, CS1, CS2>(
+            &self.r1cs,
+            &self.cf_r1cs,
+            &self.cs_vp,
+            &self.cf_cs_vp,
+            &self.poseidon_config,
+        )
     }
 }
 

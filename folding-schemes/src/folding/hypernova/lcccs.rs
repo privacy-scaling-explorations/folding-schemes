@@ -10,7 +10,7 @@ use ark_std::rand::Rng;
 use ark_std::Zero;
 
 use super::Witness;
-use crate::ccs::CCS;
+use crate::arith::ccs::CCS;
 use crate::commitment::CommitmentScheme;
 use crate::folding::circuits::nonnative::affine::nonnative_affine_to_field_elements;
 use crate::utils::mle::dense_vec_to_dense_mle;
@@ -166,9 +166,10 @@ pub mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::ccs::{
+    use crate::arith::{
+        ccs::tests::{get_test_ccs, get_test_z},
         r1cs::R1CS,
-        tests::{get_test_ccs, get_test_z},
+        Arith,
     };
     use crate::commitment::pedersen::Pedersen;
     use crate::utils::hypercube::BooleanHypercube;

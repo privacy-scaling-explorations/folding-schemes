@@ -20,7 +20,7 @@ use ark_std::{log2, Zero};
 use core::{borrow::Borrow, marker::PhantomData};
 
 use super::{circuits::ChallengeGadget, nifs::NIFS};
-use crate::ccs::r1cs::R1CS;
+use crate::arith::r1cs::R1CS;
 use crate::commitment::{pedersen::Params as PedersenParams, CommitmentScheme};
 use crate::folding::circuits::{
     nonnative::{
@@ -624,8 +624,13 @@ pub mod tests {
     use ark_vesta::{constraints::GVar as GVar2, Projective as Projective2};
 
     use super::*;
-    use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z};
-    use crate::ccs::r1cs::{extract_r1cs, extract_w_x};
+    use crate::arith::{
+        r1cs::{
+            tests::{get_test_r1cs, get_test_z},
+            {extract_r1cs, extract_w_x},
+        },
+        Arith,
+    };
     use crate::commitment::pedersen::Pedersen;
     use crate::folding::nova::PreprocessorParam;
     use crate::frontend::tests::{CubicFCircuit, CustomFCircuit, WrapperCircuit};

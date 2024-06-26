@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::frontend::FCircuit;
 
-pub mod ccs;
+pub mod arith;
 pub mod commitment;
 pub mod constants;
 pub mod folding;

@@ -700,7 +700,7 @@ pub mod tests {
         let r = Fr::from_bigint(BigInteger::from_bits_le(&r_bits)).unwrap();
 
         let cs = ConstraintSystem::<Fr>::new_ref();
-        let pp_hashVar = FpVar::<Fr>::new_witness(cs.clone(), || Ok(pp_hash.clone())).unwrap();
+        let pp_hashVar = FpVar::<Fr>::new_witness(cs.clone(), || Ok(pp_hash)).unwrap();
         let u_iVar =
             CommittedInstanceVar::<Projective>::new_witness(cs.clone(), || Ok(u_i.clone()))
                 .unwrap();

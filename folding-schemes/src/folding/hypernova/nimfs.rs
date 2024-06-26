@@ -11,7 +11,7 @@ use super::{
     utils::{compute_c, compute_g, compute_sigmas_thetas},
     Witness,
 };
-use crate::ccs::CCS;
+use crate::arith::ccs::CCS;
 use crate::constants::N_BITS_RO;
 use crate::folding::circuits::nonnative::affine::nonnative_affine_to_field_elements;
 use crate::transcript::Transcript;
@@ -406,7 +406,10 @@ where
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::ccs::tests::{get_test_ccs, get_test_z};
+    use crate::arith::{
+        ccs::tests::{get_test_ccs, get_test_z},
+        Arith,
+    };
     use crate::transcript::poseidon::poseidon_canonical_config;
     use crate::transcript::poseidon::PoseidonTranscript;
     use ark_std::test_rng;
