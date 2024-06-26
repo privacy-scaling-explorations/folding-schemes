@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
+#![allow(clippy::upper_case_acronyms)]
 
 use ark_bn254::{Bn254, Fq, Fr, G1Affine};
 use ark_groth16::VerifyingKey as ArkG16VerifierKey;
@@ -310,6 +311,7 @@ mod tests {
     }
 
     /// Initializes Nova parameters and DeciderEth parameters. Only for test purposes.
+    #[allow(clippy::type_complexity)]
     fn init_params<FC: FCircuit<Fr, Params = ()>>(
     ) -> ((FS_PP<FC>, FS_VP<FC>), (DECIDER_PP<FC>, DECIDER_VP<FC>)) {
         let mut rng = rand::rngs::OsRng;

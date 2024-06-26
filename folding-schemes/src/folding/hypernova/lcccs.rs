@@ -139,8 +139,7 @@ where
         CRH::<C::ScalarField>::evaluate(
             poseidon_config,
             vec![
-                vec![pp_hash],
-                vec![i],
+                vec![pp_hash, i],
                 z_0,
                 z_i,
                 C_x,

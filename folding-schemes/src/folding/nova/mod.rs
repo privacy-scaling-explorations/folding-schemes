@@ -416,7 +416,6 @@ where
 
         // compute the public params hash
         let pp_hash = vp.pp_hash()?;
-        dbg!(&pp_hash);
 
         // setup the dummy instances
         let (w_dummy, u_dummy) = r1cs.dummy_instance();

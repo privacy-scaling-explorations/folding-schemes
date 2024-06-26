@@ -324,6 +324,7 @@ where
 
         let mut transcript_p: PoseidonTranscript<C1> =
             PoseidonTranscript::<C1>::new(&self.poseidon_config.clone());
+        transcript_p.absorb(&self.pp_hash);
         let (nimfs_proof, U_i1, W_i1, rho_bits) = NIMFS::<C1, PoseidonTranscript<C1>>::prove(
             &mut transcript_p,
             &self.ccs,

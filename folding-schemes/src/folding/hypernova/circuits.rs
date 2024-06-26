@@ -149,7 +149,6 @@ where
         z_i: Vec<FpVar<CF1<C>>>,
     ) -> Result<(FpVar<CF1<C>>, Vec<FpVar<CF1<C>>>), SynthesisError> {
         let U_vec = [
-            vec![pp_hash],
             self.C.to_constraint_field()?,
             vec![self.u],
             self.x,
@@ -157,7 +156,7 @@ where
             self.v,
         ]
         .concat();
-        let input = [vec![i], z_0, z_i, U_vec.clone()].concat();
+        let input = [vec![pp_hash, i], z_0, z_i, U_vec.clone()].concat();
         Ok((
             CRHGadget::<C::ScalarField>::evaluate(crh_params, &input)?,
             U_vec,
@@ -563,6 +562,7 @@ where
 
         let mut transcript_p: PoseidonTranscript<C1> =
             PoseidonTranscript::<C1>::new(&self.poseidon_config.clone());
+        // since this is only for the number of constraints, no need to absorb the pp_hash here
         let (nimfs_proof, U_i1, _, _) = NIMFS::<C1, PoseidonTranscript<C1>>::prove(
             &mut transcript_p,
             &ccs,
@@ -1171,6 +1171,7 @@ mod tests {
             let start = Instant::now();
             let mut transcript_p: PoseidonTranscript<Projective> =
                 PoseidonTranscript::<Projective>::new(&poseidon_config.clone());
+            transcript_p.absorb(&pp_hash);
             let (nimfs_proof, U_i1, W_i1, rho_bits) =
                 NIMFS::<Projective, PoseidonTranscript<Projective>>::prove(
                     &mut transcript_p,

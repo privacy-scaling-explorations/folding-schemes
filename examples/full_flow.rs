@@ -99,14 +99,14 @@ fn main() {
 
     // prepare the Nova prover & verifier params
     let nova_preprocess_params = PreprocessorParam::new(poseidon_config.clone(), f_circuit);
-    let (fs_pp, fs_vp) = NOVA::preprocess(&mut rng, &nova_preprocess_params).unwrap();
+    let nova_params = NOVA::preprocess(&mut rng, &nova_preprocess_params).unwrap();
 
     // initialize the folding scheme engine, in our case we use Nova
-    let mut nova = NOVA::init(&(fs_pp, fs_vp), f_circuit, z_0).unwrap();
+    let mut nova = NOVA::init(nova_params.clone(), f_circuit, z_0).unwrap();
 
     // prepare the Decider prover & verifier params
     let (decider_pp, decider_vp) =
-        DECIDERETH_FCircuit::preprocess(&mut rng, &(fs_pp, fs_vp), nova.clone()).unwrap();
+        DECIDERETH_FCircuit::preprocess(&mut rng, &nova_params, nova.clone()).unwrap();
 
     // run n steps of the folding iteration
     for i in 0..n_steps {

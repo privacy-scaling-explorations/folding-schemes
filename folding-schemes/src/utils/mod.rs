@@ -54,8 +54,8 @@ where
     CS1: CommitmentScheme<C1>,
     CS2: CommitmentScheme<C2>,
 {
-    // hash public params
     let mut hasher = Sha3_256::new();
+
     // Fr & Fq modulus bit size
     hasher.update(C1::ScalarField::MODULUS_BIT_SIZE.to_le_bytes());
     hasher.update(C2::ScalarField::MODULUS_BIT_SIZE.to_le_bytes());
@@ -71,10 +71,29 @@ where
     cf_cs_vp.serialize_uncompressed(&mut cf_cs_vp_bytes)?;
     hasher.update(cf_cs_vp_bytes);
     // poseidon params
-    // TODO
-    // let mut poseidon_config_bytes = Vec::new();
-    // poseidon_config.serialize_uncompressed(&mut poseidon_config_bytes)?;
-    // hasher.update(poseidon_config_bytes);
+    let mut poseidon_config_bytes = Vec::new();
+    poseidon_config
+        .full_rounds
+        .serialize_uncompressed(&mut poseidon_config_bytes)?;
+    poseidon_config
+        .partial_rounds
+        .serialize_uncompressed(&mut poseidon_config_bytes)?;
+    poseidon_config
+        .alpha
+        .serialize_uncompressed(&mut poseidon_config_bytes)?;
+    poseidon_config
+        .ark
+        .serialize_uncompressed(&mut poseidon_config_bytes)?;
+    poseidon_config
+        .mds
+        .serialize_uncompressed(&mut poseidon_config_bytes)?;
+    poseidon_config
+        .rate
+        .serialize_uncompressed(&mut poseidon_config_bytes)?;
+    poseidon_config
+        .capacity
+        .serialize_uncompressed(&mut poseidon_config_bytes)?;
+    hasher.update(poseidon_config_bytes);
 
     let public_params_hash = hasher.finalize();
     Ok(C1::ScalarField::from_le_bytes_mod_order(
