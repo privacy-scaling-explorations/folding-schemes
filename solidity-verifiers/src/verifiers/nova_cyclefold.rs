@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
 
-use ark_bn254::{Bn254, Fq, G1Affine};
+use ark_bn254::{Bn254, Fq, Fr, G1Affine};
 use ark_groth16::VerifyingKey as ArkG16VerifierKey;
 use ark_poly_commit::kzg10::VerifierKey as ArkKZG10VerifierKey;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -27,6 +27,7 @@ pub fn get_decider_template_for_cyclefold_decider(
 #[derive(Template, Default)]
 #[template(path = "nova_cyclefold_decider.askama.sol", ext = "sol")]
 pub struct NovaCycleFoldDecider {
+    pp_hash: Fr, // public params hash
     groth16_verifier: Groth16Verifier,
     kzg10_verifier: KZG10Verifier,
     // z_len denotes the FCircuit state (z_i) length
@@ -42,6 +43,7 @@ impl From<NovaCycleFoldVerifierKey> for NovaCycleFoldDecider {
         let public_inputs_len = groth16_verifier.gamma_abc_len;
         let bits_per_limb = NonNativeUintVar::<Fq>::bits_per_limb();
         Self {
+            pp_hash: value.pp_hash,
             groth16_verifier,
             kzg10_verifier: KZG10Verifier::from(value.kzg_vk),
             z_len: value.z_len,
@@ -54,6 +56,7 @@ impl From<NovaCycleFoldVerifierKey> for NovaCycleFoldDecider {
 
 #[derive(CanonicalDeserialize, CanonicalSerialize, PartialEq, Debug, Clone)]
 pub struct NovaCycleFoldVerifierKey {
+    pp_hash: Fr,
     g16_vk: Groth16VerifierKey,
     kzg_vk: KZG10VerifierKey,
     z_len: usize,
@@ -73,12 +76,13 @@ impl ProtocolVerifierKey for NovaCycleFoldVerifierKey {
     }
 }
 
-impl From<(Groth16VerifierKey, KZG10VerifierKey, usize)> for NovaCycleFoldVerifierKey {
-    fn from(value: (Groth16VerifierKey, KZG10VerifierKey, usize)) -> Self {
+impl From<(Fr, Groth16VerifierKey, KZG10VerifierKey, usize)> for NovaCycleFoldVerifierKey {
+    fn from(value: (Fr, Groth16VerifierKey, KZG10VerifierKey, usize)) -> Self {
         Self {
-            g16_vk: value.0,
-            kzg_vk: value.1,
-            z_len: value.2,
+            pp_hash: value.0,
+            g16_vk: value.1,
+            kzg_vk: value.2,
+            z_len: value.3,
         }
     }
 }
@@ -87,21 +91,22 @@ impl From<(Groth16VerifierKey, KZG10VerifierKey, usize)> for NovaCycleFoldVerifi
 // in the NovaCycleFoldDecider verifier contract
 impl
     From<(
-        (ArkG16VerifierKey<Bn254>, ArkKZG10VerifierKey<Bn254>),
+        (Fr, ArkG16VerifierKey<Bn254>, ArkKZG10VerifierKey<Bn254>),
         usize,
     )> for NovaCycleFoldVerifierKey
 {
     fn from(
         value: (
-            (ArkG16VerifierKey<Bn254>, ArkKZG10VerifierKey<Bn254>),
+            (Fr, ArkG16VerifierKey<Bn254>, ArkKZG10VerifierKey<Bn254>),
             usize,
         ),
     ) -> Self {
         let decider_vp = value.0;
-        let g16_vk = Groth16VerifierKey::from(decider_vp.0);
+        let g16_vk = Groth16VerifierKey::from(decider_vp.1);
         // pass `Vec::new()` since batchCheck will not be used
-        let kzg_vk = KZG10VerifierKey::from((decider_vp.1, Vec::new()));
+        let kzg_vk = KZG10VerifierKey::from((decider_vp.2, Vec::new()));
         Self {
+            pp_hash: decider_vp.0,
             g16_vk,
             kzg_vk,
             z_len: value.1,
@@ -111,12 +116,14 @@ impl
 
 impl NovaCycleFoldVerifierKey {
     pub fn new(
+        pp_hash: Fr,
         vkey_g16: ArkG16VerifierKey<Bn254>,
         vkey_kzg: ArkKZG10VerifierKey<Bn254>,
         crs_points: Vec<G1Affine>,
         z_len: usize,
     ) -> Self {
         Self {
+            pp_hash,
             g16_vk: Groth16VerifierKey::from(vkey_g16),
             kzg_vk: KZG10VerifierKey::from((vkey_kzg, crs_points)),
             z_len,
@@ -276,10 +283,10 @@ mod tests {
 
     #[test]
     fn nova_cyclefold_vk_serde_roundtrip() {
-        let (_, kzg_vk, _, g16_vk, _) = setup(DEFAULT_SETUP_LEN);
+        let (pp_hash, _, kzg_vk, _, g16_vk, _) = setup(DEFAULT_SETUP_LEN);
 
         let mut bytes = vec![];
-        let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from(((g16_vk, kzg_vk), 1));
+        let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from(((pp_hash, g16_vk, kzg_vk), 1));
 
         nova_cyclefold_vk
             .serialize_protocol_verifier_key(&mut bytes)
@@ -292,8 +299,8 @@ mod tests {
 
     #[test]
     fn nova_cyclefold_decider_template_renders() {
-        let (_, kzg_vk, _, g16_vk, _) = setup(DEFAULT_SETUP_LEN);
-        let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from(((g16_vk, kzg_vk), 1));
+        let (pp_hash, _, kzg_vk, _, g16_vk, _) = setup(DEFAULT_SETUP_LEN);
+        let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from(((pp_hash, g16_vk, kzg_vk), 1));
 
         let decider_solidity_code = HeaderInclusion::<NovaCycleFoldDecider>::builder()
             .template(nova_cyclefold_vk)

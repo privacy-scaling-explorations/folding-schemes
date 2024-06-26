@@ -91,7 +91,8 @@ where
     type PreprocessorParam = (FS::ProverParam, FS::VerifierParam);
     type ProverParam = (S::ProvingKey, CS1::ProverParams);
     type Proof = Proof<C1, CS1, S>;
-    type VerifierParam = (S::VerifyingKey, CS1::VerifierParams);
+    /// VerifierParam = (pp_hash, snark::vk, commitment_scheme::vk)
+    type VerifierParam = (C1::ScalarField, S::VerifyingKey, CS1::VerifierParams);
     type PublicInput = Vec<C1::ScalarField>;
     type CommittedInstanceWithWitness = ();
     type CommittedInstance = CommittedInstance<C1>;
@@ -117,9 +118,10 @@ where
         let nova_vp:
             <Nova<C1, GC1, C2, GC2, FC, CS1, CS2> as FoldingScheme<C1, C2, FC>>::VerifierParam =
                 prep_param.1.clone().into();
+        let pp_hash = nova_vp.pp_hash()?;
 
         let pp = (g16_pk, nova_pp.cs_pp);
-        let vp = (g16_vk, nova_vp.cs_vp);
+        let vp = (pp_hash, g16_vk, nova_vp.cs_vp);
         Ok((pp, vp))
     }
 
@@ -188,7 +190,8 @@ where
             return Err(Error::NotEnoughSteps);
         }
 
-        let (snark_vk, cs_vk): (S::VerifyingKey, CS1::VerifierParams) = vp;
+        let (pp_hash, snark_vk, cs_vk): (C1::ScalarField, S::VerifyingKey, CS1::VerifierParams) =
+            vp;
 
         // compute U = U_{d+1}= NIFS.V(U_d, u_d, cmT)
         let U = NIFS::<C1, CS1>::verify(proof.r, running_instance, incoming_instance, &proof.cmT);
@@ -198,10 +201,7 @@ where
         let (cmT_x, cmT_y) = NonNativeAffineVar::inputize(proof.cmT)?;
 
         let public_input: Vec<C1::ScalarField> = vec![
-            // TODO el Deicder::VerifierParam pot contenir Nova::VerifierParam, per poder computar
-            // el vp.nova_vp.pp_hash()
-            // vec![vp.pp_hash()],
-            vec![i],
+            vec![pp_hash, i],
             z_0,
             z_i,
             vec![U.u],

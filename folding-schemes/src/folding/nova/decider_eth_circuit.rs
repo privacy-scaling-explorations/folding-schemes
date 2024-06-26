@@ -364,8 +364,7 @@ where
                 Ok(self.r1cs.clone())
             })?;
 
-        // TODO new_input
-        let pp_hash = FpVar::<CF1<C1>>::new_witness(cs.clone(), || {
+        let pp_hash = FpVar::<CF1<C1>>::new_input(cs.clone(), || {
             Ok(self.pp_hash.unwrap_or_else(CF1::<C1>::zero))
         })?;
         let i =
