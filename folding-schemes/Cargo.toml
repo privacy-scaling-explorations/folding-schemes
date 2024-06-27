@@ -23,9 +23,13 @@ num-integer = "0.1"
 color-eyre = "=0.6.2"
 ark-bn254 = {version="0.4.0"}
 ark-groth16 = { version = "^0.4.0" }
+ark-noname = { path="/Users/pierredm/work/personal/ark-noname" }
+noname = { path="/Users/pierredm/repos/forks/dmpierre/noname" } 
+serde_json = "1.0.85"                                                                # to (de)serialize JSON
 
 # tmp imports for espresso's sumcheck
 espresso_subroutines = {git="https://github.com/EspressoSystems/hyperplonk", package="subroutines"}
+serde = "1.0.203"
 
 [dev-dependencies]
 ark-pallas = {version="0.4.0", features=["r1cs"]}

@@ -5,6 +5,7 @@ use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
 use ark_std::fmt::Debug;
 
 pub mod circom;
+pub mod noname;
 
 /// FCircuit defines the trait of the circuit of the F function, which is the one being folded (ie.
 /// inside the agmented F' function).
