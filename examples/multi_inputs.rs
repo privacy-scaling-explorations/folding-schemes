@@ -8,6 +8,7 @@ use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
 use core::marker::PhantomData;
+use frontend_macro::Flatten;
 use std::time::Instant;
 
 use ark_bn254::{constraints::GVar, Bn254, Fr, G1Projective as Projective};
@@ -25,6 +26,17 @@ use utils::init_nova_ivc_params;
 /// we get by applying the step.
 /// In this example we set z_i and z_{i+1} to have five elements, and at each step we do different
 /// operations on each of them.
+///
+
+#[derive(Flatten)]
+pub struct State<F: PrimeField> {
+    pub a: F,
+    pub b: F,
+    pub c: F,
+    pub d: F,
+    pub e: F,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct MultiInputsFCircuit<F: PrimeField> {
     _f: PhantomData<F>,
@@ -35,9 +47,11 @@ impl<F: PrimeField> FCircuit<F> for MultiInputsFCircuit<F> {
     fn new(_params: Self::Params) -> Result<Self, Error> {
         Ok(Self { _f: PhantomData })
     }
+
     fn state_len(&self) -> usize {
-        5
+        State::<F>::state_number()
     }
+
     fn external_inputs_len(&self) -> usize {
         0
     }
@@ -50,13 +64,16 @@ impl<F: PrimeField> FCircuit<F> for MultiInputsFCircuit<F> {
         z_i: Vec<F>,
         _external_inputs: Vec<F>,
     ) -> Result<Vec<F>, Error> {
-        let a = z_i[0] + F::from(4_u32);
-        let b = z_i[1] + F::from(40_u32);
-        let c = z_i[2] * F::from(4_u32);
-        let d = z_i[3] * F::from(40_u32);
-        let e = z_i[4] + F::from(100_u32);
+        let state = State::from(z_i);
 
-        Ok(vec![a, b, c, d, e])
+        let next_state = State {
+            a: state.a + F::from(4_u32),
+            b: state.b + F::from(40_u32),
+            c: state.c * F::from(4_u32),
+            d: state.d * F::from(40_u32),
+            e: state.e + F::from(100_u32),
+        };
+        Ok(Vec::from(next_state))
     }
 
     /// generates the constraints for the step of F for the given z_i
@@ -67,16 +84,21 @@ impl<F: PrimeField> FCircuit<F> for MultiInputsFCircuit<F> {
         z_i: Vec<FpVar<F>>,
         _external_inputs: Vec<FpVar<F>>,
     ) -> Result<Vec<FpVar<F>>, SynthesisError> {
+        let cs_state = State::cs_state(z_i.clone());
+
         let four = FpVar::<F>::new_constant(cs.clone(), F::from(4u32))?;
         let forty = FpVar::<F>::new_constant(cs.clone(), F::from(40u32))?;
         let onehundred = FpVar::<F>::new_constant(cs.clone(), F::from(100u32))?;
-        let a = z_i[0].clone() + four.clone();
-        let b = z_i[1].clone() + forty.clone();
-        let c = z_i[2].clone() * four;
-        let d = z_i[3].clone() * forty;
-        let e = z_i[4].clone() + onehundred;
 
-        Ok(vec![a, b, c, d, e])
+        let next_cs_state = StateConstraint {
+            a: cs_state.a.clone() + four.clone(),
+            b: cs_state.b.clone() + forty.clone(),
+            c: cs_state.c.clone() * four,
+            d: cs_state.d.clone() * forty,
+            e: cs_state.e.clone() + onehundred,
+        };
+
+        Ok(Vec::from(next_cs_state))
     }
 }
 

@@ -22,7 +22,10 @@ pub trait FCircuit<F: PrimeField>: Clone + Debug {
 
     /// returns the number of elements in the external inputs used by the FCircuit. External inputs
     /// are optional, and in case no external inputs are used, this method should return 0.
-    fn external_inputs_len(&self) -> usize;
+    /// default is zero
+    fn external_inputs_len(&self) -> usize {
+        0
+    }
 
     /// computes the next state values in place, assigning z_{i+1} into z_i, and computing the new
     /// z_{i+1}
