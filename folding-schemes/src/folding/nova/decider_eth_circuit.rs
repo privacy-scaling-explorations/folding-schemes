@@ -448,11 +448,12 @@ where
         {
             // imports here instead of at the top of the file, so we avoid having multiple
             // `#[cfg(not(test))]`
+            use super::NOVA_CF_N_POINTS;
             use crate::commitment::pedersen::PedersenGadget;
-            use crate::folding::nova::cyclefold::{CycleFoldCommittedInstanceVar, CF_IO_LEN};
+            use crate::folding::nova::cyclefold::{cf_io_len, CycleFoldCommittedInstanceVar};
             use ark_r1cs_std::ToBitsGadget;
 
-            let cf_u_dummy_native = CommittedInstance::<C2>::dummy(CF_IO_LEN);
+            let cf_u_dummy_native = CommittedInstance::<C2>::dummy(cf_io_len(NOVA_CF_N_POINTS));
             let w_dummy_native = Witness::<C2>::new(
                 vec![C2::ScalarField::zero(); self.cf_r1cs.A.n_cols - 1 - self.cf_r1cs.l],
                 self.cf_E_len,
@@ -814,7 +815,7 @@ pub mod tests {
             z_0.clone(),
         )
         .unwrap();
-        nova.prove_step(&mut rng, vec![]).unwrap();
+        nova.prove_step(&mut rng, vec![], ()).unwrap();
 
         let ivc_v = nova.clone();
         let (running_instance, incoming_instance, cyclefold_instance) = ivc_v.instances();

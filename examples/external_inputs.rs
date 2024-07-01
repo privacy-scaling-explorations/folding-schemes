@@ -197,7 +197,7 @@ fn main() {
     for (i, external_inputs_at_step) in external_inputs.iter().enumerate() {
         let start = Instant::now();
         folding_scheme
-            .prove_step(rng, external_inputs_at_step.clone())
+            .prove_step(rng, external_inputs_at_step.clone(), ())
             .unwrap();
         println!("Nova::prove_step {}: {:?}", i, start.elapsed());
     }

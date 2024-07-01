@@ -38,6 +38,10 @@ use circuits::{AugmentedFCircuit, ChallengeGadget};
 use nifs::NIFS;
 use traits::NovaR1CS;
 
+/// Number of points to be folded in the CycleFold circuit, in Nova's case, this is a fixed amount:
+/// 2 points to be folded.
+const NOVA_CF_N_POINTS: usize = 2_usize;
+
 #[derive(Debug, Clone, Eq, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct CommittedInstance<C: CurveGroup> {
     pub cmE: C,
@@ -344,6 +348,7 @@ where
     type VerifierParam = VerifierParams<C1, C2, CS1, CS2>;
     type RunningCommittedInstanceWithWitness = (CommittedInstance<C1>, Witness<C1>);
     type IncomingCommittedInstanceWithWitness = (CommittedInstance<C1>, Witness<C1>);
+    type MultiCommittedInstanceWithWitness = ();
     type CFCommittedInstanceWithWitness = (CommittedInstance<C2>, Witness<C2>);
 
     fn preprocess(
@@ -402,7 +407,7 @@ where
 
         let augmented_F_circuit =
             AugmentedFCircuit::<C1, C2, GC2, FC>::empty(&pp.poseidon_config, F.clone());
-        let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty();
+        let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty(NOVA_CF_N_POINTS);
 
         augmented_F_circuit.generate_constraints(cs.clone())?;
         cs.finalize();
@@ -452,7 +457,13 @@ where
         &mut self,
         _rng: impl RngCore,
         external_inputs: Vec<C1::ScalarField>,
+        // Nova does not support multi-instances folding
+        _other_instances: Self::MultiCommittedInstanceWithWitness,
     ) -> Result<(), Error> {
+        // if !other_instances.is_empty() {
+        //     return Err(Error::NotSupported("multi instances in Nova".to_string()));
+        // }
+
         let augmented_F_circuit: AugmentedFCircuit<C1, C2, GC2, FC>;
 
         if self.z_i.len() != self.F.state_len() {
@@ -569,16 +580,16 @@ where
 
             let cfW_circuit = CycleFoldCircuit::<C1, GC1> {
                 _gc: PhantomData,
-                r_bits: Some(r_bits.clone()),
-                p1: Some(self.U_i.clone().cmW),
-                p2: Some(self.u_i.clone().cmW),
+                n_points: NOVA_CF_N_POINTS,
+                r_bits: Some(vec![r_bits.clone()]),
+                points: Some(vec![self.U_i.clone().cmW, self.u_i.clone().cmW]),
                 x: Some(cfW_u_i_x.clone()),
             };
             let cfE_circuit = CycleFoldCircuit::<C1, GC1> {
                 _gc: PhantomData,
-                r_bits: Some(r_bits.clone()),
-                p1: Some(self.U_i.clone().cmE),
-                p2: Some(cmT),
+                n_points: NOVA_CF_N_POINTS,
+                r_bits: Some(vec![r_bits.clone()]),
+                points: Some(vec![self.U_i.clone().cmE, cmT]),
                 x: Some(cfE_u_i_x.clone()),
             };
 
@@ -799,6 +810,7 @@ where
         Error,
     > {
         fold_cyclefold_circuit::<C1, GC1, C2, GC2, FC, CS1, CS2>(
+            NOVA_CF_N_POINTS,
             &self.poseidon_config,
             self.cf_r1cs.clone(),
             self.cf_cs_pp.clone(),
@@ -845,7 +857,7 @@ where
 {
     let augmented_F_circuit =
         AugmentedFCircuit::<C1, C2, GC2, FC>::empty(poseidon_config, F_circuit);
-    let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty();
+    let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty(NOVA_CF_N_POINTS);
     let r1cs = get_r1cs_from_cs::<C1::ScalarField>(augmented_F_circuit)?;
     let cf_r1cs = get_r1cs_from_cs::<C2::ScalarField>(cf_circuit)?;
     Ok((r1cs, cf_r1cs))
@@ -930,7 +942,7 @@ pub mod tests {
 
         let num_steps: usize = 3;
         for _ in 0..num_steps {
-            nova.prove_step(&mut rng, vec![]).unwrap();
+            nova.prove_step(&mut rng, vec![], ()).unwrap();
         }
         assert_eq!(Fr::from(num_steps as u32), nova.i);
 

@@ -95,7 +95,7 @@ fn main() {
     // run n steps of the folding iteration
     for (i, external_inputs_at_step) in external_inputs.iter().enumerate() {
         let start = Instant::now();
-        nova.prove_step(rng, external_inputs_at_step.clone())
+        nova.prove_step(rng, external_inputs_at_step.clone(), ())
             .unwrap();
         println!("Nova::prove_step {}: {:?}", i, start.elapsed());
     }

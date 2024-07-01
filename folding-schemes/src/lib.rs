@@ -70,6 +70,8 @@ pub enum Error {
     NotEnoughSteps,
     #[error("Evaluation failed")]
     EvaluationFail,
+    #[error("{0} can not be zero")]
+    CantBeZero(String),
 
     // Commitment errors
     #[error("Pedersen parameters length is not sufficient (generators.len={0} < vector.len={1} unsatisfied)")]
@@ -115,6 +117,8 @@ where
     type VerifierParam: Debug + Clone;
     type RunningCommittedInstanceWithWitness: Debug;
     type IncomingCommittedInstanceWithWitness: Debug;
+    // type used for the extra instances in the multi-instance folding setting
+    type MultiCommittedInstanceWithWitness: Debug;
     type CFCommittedInstanceWithWitness: Debug; // CycleFold CommittedInstance & Witness
 
     fn preprocess(
@@ -132,6 +136,7 @@ where
         &mut self,
         rng: impl RngCore,
         external_inputs: Vec<C1::ScalarField>,
+        other_instances: Self::MultiCommittedInstanceWithWitness,
     ) -> Result<(), Error>;
 
     // returns the state at the current step

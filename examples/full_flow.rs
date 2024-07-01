@@ -111,7 +111,7 @@ fn main() {
     // run n steps of the folding iteration
     for i in 0..n_steps {
         let start = Instant::now();
-        nova.prove_step(rng, vec![]).unwrap();
+        nova.prove_step(rng, vec![], ()).unwrap();
         println!("Nova::prove_step {}: {:?}", i, start.elapsed());
     }
 

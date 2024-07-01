@@ -12,7 +12,10 @@ use std::marker::PhantomData;
 
 use super::{circuits::AugmentedFCircuit, Nova, ProverParams};
 use super::{CommittedInstance, Witness};
-use crate::folding::circuits::{cyclefold::CycleFoldCircuit, CF2};
+use crate::folding::{
+    circuits::{cyclefold::CycleFoldCircuit, CF2},
+    nova::NOVA_CF_N_POINTS,
+};
 use crate::{
     arith::r1cs::extract_r1cs, commitment::CommitmentScheme, folding::circuits::CF1,
     frontend::FCircuit,
@@ -134,7 +137,7 @@ where
         let cs2 = ConstraintSystem::<C1::BaseField>::new_ref();
         let augmented_F_circuit =
             AugmentedFCircuit::<C1, C2, GC2, FC>::empty(&poseidon_config, f_circuit.clone());
-        let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty();
+        let cf_circuit = CycleFoldCircuit::<C1, GC1>::empty(NOVA_CF_N_POINTS);
 
         augmented_F_circuit
             .generate_constraints(cs.clone())
@@ -218,7 +221,7 @@ pub mod tests {
 
         let num_steps: usize = 3;
         for _ in 0..num_steps {
-            nova.prove_step(&mut rng, vec![]).unwrap();
+            nova.prove_step(&mut rng, vec![], ()).unwrap();
         }
 
         let mut writer = vec![];
@@ -257,8 +260,8 @@ pub mod tests {
 
         let num_steps: usize = 3;
         for _ in 0..num_steps {
-            deserialized_nova.prove_step(&mut rng, vec![]).unwrap();
-            nova.prove_step(&mut rng, vec![]).unwrap();
+            deserialized_nova.prove_step(&mut rng, vec![], ()).unwrap();
+            nova.prove_step(&mut rng, vec![], ()).unwrap();
         }
 
         assert_eq!(deserialized_nova.w_i, nova.w_i);

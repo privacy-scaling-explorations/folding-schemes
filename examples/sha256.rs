@@ -134,7 +134,7 @@ fn main() {
     // compute a step of the IVC
     for i in 0..num_steps {
         let start = Instant::now();
-        folding_scheme.prove_step(rng, vec![]).unwrap();
+        folding_scheme.prove_step(rng, vec![], ()).unwrap();
         println!("Nova::prove_step {}: {:?}", i, start.elapsed());
     }
 

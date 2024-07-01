@@ -360,7 +360,7 @@ mod tests {
 
         let mut nova = NOVA::<FC>::init(fs_params, f_circuit, z_0).unwrap();
         for _ in 0..n_steps {
-            nova.prove_step(&mut rng, vec![]).unwrap();
+            nova.prove_step(&mut rng, vec![], ()).unwrap();
         }
 
         let start = Instant::now();
