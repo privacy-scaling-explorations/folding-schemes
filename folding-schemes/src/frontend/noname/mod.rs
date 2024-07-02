@@ -1,14 +1,10 @@
 use crate::Error;
-use ark_noname::NoNameCircuit;
+use ark_noname::sonobe::NoNameSonobeCircuit;
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::fields::fp::FpVar;
-use ark_r1cs_std::R1CSVar;
-use ark_relations::r1cs::ConstraintSynthesizer;
-use noname::inputs::{parse_inputs, JsonInputs};
+use ark_relations::r1cs::{ConstraintSynthesizer, SynthesisError};
 use num_bigint::BigUint;
-use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
-use std::str::FromStr;
 
 use super::FCircuit;
 use ark_ff::PrimeField;
@@ -16,136 +12,9 @@ use ark_noname::utils::compile_source_code;
 use noname::backends::{r1cs::R1CS as R1CSNoName, BackendField};
 use noname::witness::CompiledCircuit;
 
-#[derive(Serialize, Deserialize)]
-struct NoNameJSONIVCInput {
-    pub ivc_input: Vec<String>,
-}
+pub mod utils;
 
-#[derive(Serialize, Deserialize)]
-struct NoNameJSONExternalInputs {
-    pub external_inputs: Vec<String>,
-}
-
-impl<F: PrimeField> From<Vec<F>> for NoNameJSONIVCInput {
-    fn from(value: Vec<F>) -> Self {
-        let mut ivc_input = Vec::with_capacity(value.len());
-        for field_element in value {
-            ivc_input.push(field_element.to_string());
-        }
-        NoNameJSONIVCInput { ivc_input }
-    }
-}
-
-impl NoNameJSONIVCInput {
-    fn from_fpvars<F: PrimeField>(value: &Vec<FpVar<F>>) -> Self {
-        let mut field_elements = Vec::<F>::with_capacity(value.len());
-        for var in value {
-            let val = var.value().unwrap();
-            field_elements.push(val);
-        }
-        NoNameJSONIVCInput::from(field_elements)
-    }
-}
-
-impl<F: PrimeField> From<Vec<F>> for NoNameJSONExternalInputs {
-    fn from(value: Vec<F>) -> Self {
-        let mut external_inputs = Vec::with_capacity(value.len());
-        for field_element in value {
-            external_inputs.push(field_element.to_string());
-        }
-        NoNameJSONExternalInputs { external_inputs }
-    }
-}
-
-impl NoNameJSONExternalInputs {
-    fn from_fpvars<F: PrimeField>(value: &Vec<FpVar<F>>) -> Self {
-        let mut field_elements = Vec::<F>::with_capacity(value.len());
-        for var in value {
-            let val = var.value().unwrap();
-            field_elements.push(val);
-        }
-        NoNameJSONExternalInputs::from(field_elements)
-    }
-}
-
-pub struct NoNameIVCInputs<F: PrimeField> {
-    pub ivc_input: Vec<F>,
-    pub external_inputs: Option<Vec<F>>,
-}
-
-impl<F: PrimeField> TryFrom<(String, Option<String>)> for NoNameIVCInputs<F> {
-    type Error = Error;
-
-    fn try_from(value: (String, Option<String>)) -> Result<Self, Error> {
-        let (ivc_public_inputs, external_inputs) = value;
-        let json_ivc_inputs = serde_json::from_str::<NoNameJSONIVCInput>(&ivc_public_inputs)
-            .map_err(|e| Error::Other(format!("{:?}", e)))?;
-
-        let json_external_inputs = match external_inputs {
-            Some(inputs) => Some(
-                serde_json::from_str::<NoNameJSONExternalInputs>(&inputs)
-                    .map_err(|e| Error::Other(format!("{:?}", e)))?,
-            ),
-            None => None,
-        };
-
-        let mut ivc_input = Vec::with_capacity(json_ivc_inputs.ivc_input.len());
-        for str_input in json_ivc_inputs.ivc_input.iter() {
-            let parsed_biguint =
-                BigUint::from_str(&str_input).map_err(|e| Error::Other(format!("{:?}", e)))?;
-            let field_element = F::from_le_bytes_mod_order(&parsed_biguint.to_bytes_be());
-            ivc_input.push(field_element);
-        }
-
-        let external_inputs = match json_external_inputs {
-            Some(inputs) => {
-                let mut external_inputs = Vec::with_capacity(inputs.external_inputs.len());
-                for str_input in inputs.external_inputs.iter() {
-                    let parsed_biguint = BigUint::from_str(&str_input)
-                        .map_err(|e| Error::Other(format!("{:?}", e)))?;
-                    let field_element = F::from_le_bytes_mod_order(&parsed_biguint.to_bytes_be());
-                    external_inputs.push(field_element);
-                }
-                Some(external_inputs)
-            }
-            None => None,
-        };
-
-        Ok(NoNameIVCInputs {
-            ivc_input,
-            external_inputs,
-        })
-    }
-}
-
-impl<F: PrimeField> TryInto<(JsonInputs, JsonInputs)> for NoNameIVCInputs<F> {
-    type Error = Error;
-
-    fn try_into(self) -> Result<(JsonInputs, JsonInputs), Error> {
-        let ivc_inputs = serde_json::to_string(&NoNameJSONIVCInput::from(self.ivc_input))
-            .map_err(|e| Error::Other(format!("{:?}", e)))?;
-        let external_inputs = match self.external_inputs {
-            Some(inputs) => {
-                let parsed_inputs = parse_inputs(
-                    &serde_json::to_string(&NoNameJSONExternalInputs::from(inputs))
-                        .map_err(|e| Error::Other(format!("{:?}", e)))?,
-                )
-                .map_err(|e| Error::Other(format!("{:?}", e)))?;
-                parsed_inputs
-            }
-            None => parse_inputs(&serde_json::to_string("{blank: []}").unwrap()).unwrap(),
-        };
-        Ok((
-            parse_inputs(&ivc_inputs).map_err(|e| Error::Other(format!("{:?}", e)))?,
-            external_inputs,
-        ))
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct NoNameExternalInputs {
-    pub external_inputs: Vec<usize>,
-}
+use utils::*;
 
 #[derive(Debug, Clone)]
 pub struct NoNameFCircuit<F: PrimeField, BF: BackendField> {
@@ -199,39 +68,51 @@ impl<F: PrimeField, BF: BackendField> FCircuit<F> for NoNameFCircuit<F, BF> {
         z_i: Vec<ark_r1cs_std::fields::fp::FpVar<F>>,
         external_inputs: Vec<ark_r1cs_std::fields::fp::FpVar<F>>, // inputs that are not part of the state
     ) -> Result<Vec<ark_r1cs_std::fields::fp::FpVar<F>>, ark_relations::r1cs::SynthesisError> {
-        // fpvars -> String -> formatted json -> JsonInputs
-        let external_inputs_present = external_inputs.len() != 0;
-        let external_inputs_json = match external_inputs_present {
+        // fpvars -> String -> formatted json -> noname JsonInputs
+        let external_inputs_json = match external_inputs.len() != 0 {
             false => None,
             true => {
                 let json = serde_json::to_string(&NoNameJSONExternalInputs::from_fpvars(
                     &external_inputs.clone(),
-                ))
-                .unwrap();
+                )?)
+                .map_err(|_| SynthesisError::Unsatisfiable)?;
                 Some(json)
             }
         };
-        let ivc_inputs = serde_json::to_string(&NoNameJSONIVCInput::from_fpvars(&z_i)).unwrap();
-        let noname_inputs =
-            NoNameIVCInputs::<F>::try_from((ivc_inputs, external_inputs_json)).unwrap();
-        let (ivc_inputs, external_inputs) = noname_inputs.try_into().unwrap();
+
+        let ivc_inputs = serde_json::to_string(&NoNameJSONIVCInput::from_fpvars(&z_i)?)
+            .map_err(|_| SynthesisError::Unsatisfiable)?;
+        let noname_inputs = NoNameIVCInputs::<F>::try_from((ivc_inputs, external_inputs_json))
+            .map_err(|_| SynthesisError::Unsatisfiable)?;
+        let (ivc_inputs, noname_external_inputs) = noname_inputs
+            .try_into()
+            .map_err(|_| SynthesisError::Unsatisfiable)?;
         let noname_witness = self
             .circuit
-            .generate_witness(ivc_inputs, external_inputs)
-            .unwrap();
+            .generate_witness(ivc_inputs, noname_external_inputs)
+            .map_err(|_| SynthesisError::Unsatisfiable)?;
 
-        let noname_circuit = NoNameCircuit {
+        let mut assigned_z_i1 = vec![];
+        let z_i1_end_index = z_i.len() + 1;
+        for idx in 1..z_i1_end_index {
+            // the assigned zi1 is of the same size than the initial zi and is located in the
+            // output of the witness vector
+            // we prefer to assign z_i1 here since (1) we have to return it, (2) we cant return
+            // anything with the `generate_constraints` method used below
+            let value: BigUint = Into::into(noname_witness.witness[idx]);
+            let field_element = F::from(value);
+            assigned_z_i1.push(FpVar::<F>::new_witness(cs.clone(), || Ok(field_element))?);
+        }
+
+        let noname_circuit = NoNameSonobeCircuit {
             compiled_circuit: self.circuit.clone(),
             witness: noname_witness,
+            assigned_z_i: &z_i,
+            assigned_external_inputs: &external_inputs,
+            assigned_z_i1: &assigned_z_i1,
         };
         noname_circuit.generate_constraints(cs.clone())?;
-
-        assert!(cs.is_satisfied()?);
-        // let z_i1: Vec<FpVar<F>> = Vec::<FpVar<F>>::new_witness(cs.clone(), || {
-        //     Ok(witness[1..1 + self.state_len()].to_vec())
-        // })?;
-
-        Ok(vec![FpVar::new_witness(cs.clone(), || Ok(F::one()))?])
+        Ok(assigned_z_i1)
     }
 }
 
@@ -239,27 +120,16 @@ impl<F: PrimeField, BF: BackendField> FCircuit<F> for NoNameFCircuit<F, BF> {
 mod tests {
 
     use ark_bn254::Fr;
-    use ark_noname::circuits::WITH_PUBLIC_OUTPUT_ARRAY;
-    use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar};
-    use noname::{backends::r1cs::R1csBn254Field, inputs::parse_inputs};
+    use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar, R1CSVar};
+    use noname::backends::r1cs::R1csBn254Field;
 
-    use crate::frontend::FCircuit;
+    use crate::frontend::{
+        noname::{NONAME_CIRCUIT_EXTERNAL_INPUTS, NONAME_CIRCUIT_NO_EXTERNAL_INPUTS},
+        FCircuit,
+    };
 
-    use super::{NoNameExternalInputs, NoNameFCircuit, NoNameIVCInputs};
-    use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
-
-    const CIRCUIT_EXTERNAL_INPUTS: &str =
-        "fn main(pub ivc_input: [Field; 2], external_inputs: [Field; 2]) -> [Field; 2] {
-    let xx = external_inputs[0] + ivc_input[0];
-    let yy = external_inputs[1] * ivc_input[1];
-    assert_eq(yy, xx);
-    return [xx, yy];
-}";
-
-    const CIRCUIT_NO_EXTERNAL_INPUTS: &str = "fn main(pub ivc_input: [Field; 2]) -> [Field; 2] {
-    let out = ivc_input[0] * ivc_input[1];
-    return [out, ivc_input[1]];
-}";
+    use super::{NoNameFCircuit, NoNameIVCInputs};
+    use ark_relations::r1cs::ConstraintSystem;
 
     #[test]
     fn test_noname_step_native() {}
@@ -267,7 +137,7 @@ mod tests {
     #[test]
     fn test_step_constraints() {
         let cs = ConstraintSystem::<Fr>::new_ref();
-        let params = (CIRCUIT_EXTERNAL_INPUTS.to_owned(), 2, 2);
+        let params = (NONAME_CIRCUIT_EXTERNAL_INPUTS.to_owned(), 2, 2);
         let circuit = NoNameFCircuit::<Fr, R1csBn254Field>::new(params).unwrap();
         let inputs_public = r#"{"ivc_input":["2","5"]}"#;
         let inputs_private = r#"{"external_inputs":["8","2"]}"#;
@@ -281,48 +151,28 @@ mod tests {
             Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(ivc_inputs.external_inputs.unwrap()))
                 .unwrap();
 
-        circuit.generate_step_constraints(cs.clone(), 0, ivc_inputs_var, external_inputs_var);
+        let z_i1 = circuit
+            .generate_step_constraints(cs.clone(), 0, ivc_inputs_var, external_inputs_var)
+            .unwrap();
+        assert!(cs.is_satisfied().unwrap());
+        assert_eq!(z_i1[0].value().unwrap(), Fr::from(10 as u8));
+        assert_eq!(z_i1[1].value().unwrap(), Fr::from(10 as u8));
     }
 
     #[test]
-    fn test_wrapper_to_nonamecircuit() {
-        let params = (CIRCUIT_NO_EXTERNAL_INPUTS.to_string(), 2, 2);
-        let noname_fcircuit = NoNameFCircuit::<Fr, R1csBn254Field>::new(params).unwrap();
-
-        // Allocates z_i1 by using step_native function.
-        let z_i = vec![Fr::from(2_u32), Fr::from(5_u32)];
-        //let wrapper_circuit = crate::frontend::tests::WrapperCircuit {
-        //    FC: noname_fcircuit.clone(),
-        //    z_i: Some(z_i.clone()),
-        //    z_i1: Some(noname_fcircuit.step_native(0, z_i.clone(), vec![]).unwrap()),
-        //};
-
-        //let cs = ConstraintSystem::<Fr>::new_ref();
-
-        //wrapper_circuit.generate_constraints(cs.clone()).unwrap();
-        //assert!(
-        //    cs.is_satisfied().unwrap(),
-        //    "Constraint system is not satisfied"
-        //);
-    }
-
-    #[test]
-    fn test_external_inputs() {}
-
-    #[test]
-    fn test_no_external_inputs() {
+    fn test_generate_constraints_no_external_inputs() {
         let cs = ConstraintSystem::<Fr>::new_ref();
-        let params = (CIRCUIT_NO_EXTERNAL_INPUTS.to_owned(), 2, 2);
-        let circuit = NoNameFCircuit::<Fr, R1csBn254Field>::new(params).unwrap();
+        let params = (NONAME_CIRCUIT_NO_EXTERNAL_INPUTS.to_owned(), 2, 0);
         let inputs_public = r#"{"ivc_input":["2","5"]}"#;
         let ivc_inputs = NoNameIVCInputs::try_from((inputs_public.to_owned(), None)).unwrap();
 
         let ivc_inputs_var =
             Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(ivc_inputs.ivc_input)).unwrap();
 
-        let json_public = parse_inputs(inputs_public).unwrap();
-
-        let params = (WITH_PUBLIC_OUTPUT_ARRAY.to_string(), 2, 2);
         let f_circuit = NoNameFCircuit::<Fr, R1csBn254Field>::new(params).unwrap();
+        f_circuit
+            .generate_step_constraints(cs.clone(), 0, ivc_inputs_var, vec![])
+            .unwrap();
+        assert!(cs.is_satisfied().unwrap());
     }
 }
