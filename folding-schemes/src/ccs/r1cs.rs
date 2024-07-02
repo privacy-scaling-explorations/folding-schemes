@@ -129,7 +129,6 @@ pub mod tests {
     use super::*;
     use crate::utils::vec::tests::{to_F_matrix, to_F_vec};
 
-    use ark_ff::PrimeField;
     use ark_pallas::Fr;
 
     pub fn get_test_r1cs<F: PrimeField>() -> R1CS<F> {

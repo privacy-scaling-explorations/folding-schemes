@@ -1,6 +1,6 @@
 /// Contains [CycleFold](https://eprint.iacr.org/2023/1192.pdf) related circuits and functions that
 /// are shared across the different folding schemes
-use ark_crypto_primitives::sponge::{poseidon::PoseidonSponge, Absorb, CryptographicSponge};
+use ark_crypto_primitives::sponge::{Absorb, CryptographicSponge};
 use ark_ec::{CurveGroup, Group};
 use ark_ff::{BigInteger, PrimeField};
 use ark_r1cs_std::{
@@ -413,7 +413,8 @@ where
 pub mod tests {
     use ark_bn254::{constraints::GVar, Fq, Fr, G1Projective as Projective};
     use ark_crypto_primitives::sponge::{
-        constraints::CryptographicSpongeVar, poseidon::constraints::PoseidonSpongeVar,
+        constraints::CryptographicSpongeVar,
+        poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge},
     };
     use ark_r1cs_std::R1CSVar;
     use ark_std::UniformRand;

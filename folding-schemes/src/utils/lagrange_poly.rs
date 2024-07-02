@@ -52,7 +52,7 @@ mod tests {
     use crate::utils::lagrange_poly::compute_lagrange_interpolated_poly;
     use ark_pallas::Fr;
     use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
-    use ark_std::{vec::Vec, UniformRand};
+    use ark_std::UniformRand;
     use espresso_subroutines::poly_iop::prelude::PolyIOPErrors;
 
     #[test]
