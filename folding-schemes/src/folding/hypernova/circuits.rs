@@ -1011,6 +1011,7 @@ mod tests {
     pub fn test_lcccs_hash() {
         let mut rng = test_rng();
         let poseidon_config = poseidon_canonical_config::<Fr>();
+        let sponge = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         let ccs = get_test_ccs();
         let z1 = get_test_z::<Fr>(3);
@@ -1024,18 +1025,18 @@ mod tests {
         let (lcccs, _) = ccs.to_lcccs(&mut rng, &pedersen_params, &z1).unwrap();
         let h = lcccs
             .clone()
-            .hash(&poseidon_config, i, z_0.clone(), z_i.clone());
+            .hash(&sponge, i, z_0.clone(), z_i.clone());
 
         let cs = ConstraintSystem::<Fr>::new_ref();
 
-        let sponge = PoseidonSpongeVar::<Fr>::new(cs.clone(), &poseidon_config);
+        let spongeVar = PoseidonSpongeVar::<Fr>::new(cs.clone(), &poseidon_config);
         let iVar = FpVar::<Fr>::new_witness(cs.clone(), || Ok(i)).unwrap();
         let z_0Var = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_0.clone())).unwrap();
         let z_iVar = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_i.clone())).unwrap();
         let lcccsVar = LCCCSVar::<Projective>::new_witness(cs.clone(), || Ok(lcccs)).unwrap();
         let (hVar, _) = lcccsVar
             .clone()
-            .hash(&sponge, iVar.clone(), z_0Var.clone(), z_iVar.clone())
+            .hash(&spongeVar, iVar.clone(), z_0Var.clone(), z_iVar.clone())
             .unwrap();
         assert!(cs.is_satisfied().unwrap());
 
@@ -1047,7 +1048,6 @@ mod tests {
     pub fn test_augmented_f_circuit() {
         let mut rng = test_rng();
         let poseidon_config = poseidon_canonical_config::<Fr>();
-        // `sponge` is for digest computation.
         let sponge = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         let start = Instant::now();
@@ -1099,7 +1099,7 @@ mod tests {
         let mut cf_W_i = cf_w_dummy.clone();
         let mut cf_U_i = cf_u_dummy.clone();
         u_i.x = vec![
-            U_i.hash(&poseidon_config, Fr::zero(), z_0.clone(), z_i.clone()),
+            U_i.hash(&sponge, Fr::zero(), z_0.clone(), z_i.clone()),
             cf_U_i.hash_cyclefold(&sponge),
         ];
 
@@ -1123,7 +1123,7 @@ mod tests {
             U_i1.check_relation(&pedersen_params, &ccs, &W_i1).unwrap();
 
             let z_i1 = F_circuit.step_native(i, z_i.clone(), vec![]).unwrap();
-            let u_i1_x = U_i1.hash(&poseidon_config, iFr + Fr::one(), z_0.clone(), z_i1.clone());
+            let u_i1_x = U_i1.hash(&sponge, iFr + Fr::one(), z_0.clone(), z_i1.clone());
 
             if i == 0 {
                 // hash the initial (dummy) CycleFold instance, which is used as the 2nd public
@@ -1245,7 +1245,7 @@ mod tests {
             assert_eq!(u_i.x[0], augmented_f_circuit.x.unwrap());
             assert_eq!(u_i.x[1], augmented_f_circuit.cf_x.unwrap());
             let expected_u_i1_x =
-                U_i1.hash(&poseidon_config, iFr + Fr::one(), z_0.clone(), z_i1.clone());
+                U_i1.hash(&sponge, iFr + Fr::one(), z_0.clone(), z_i1.clone());
             let expected_cf_U_i1_x = cf_U_i.hash_cyclefold(&sponge);
             // u_i is already u_i1 at this point, check that has the expected value at x[0]
             assert_eq!(u_i.x[0], expected_u_i1_x);

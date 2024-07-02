@@ -1,7 +1,4 @@
-use ark_crypto_primitives::sponge::{
-    poseidon::{PoseidonConfig, PoseidonSponge},
-    Absorb, CryptographicSponge,
-};
+use ark_crypto_primitives::sponge::Absorb;
 use ark_ec::{CurveGroup, Group};
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
@@ -10,7 +7,7 @@ use ark_std::rand::Rng;
 use ark_std::Zero;
 
 use super::Witness;
-use crate::ccs::CCS;
+use crate::{ccs::CCS, transcript::Transcript};
 use crate::commitment::{
     pedersen::{Params as PedersenParams, Pedersen},
     CommitmentScheme,
@@ -150,14 +147,14 @@ where
     /// [`LCCCS`].hash implements the committed instance hash compatible with the gadget
     /// implemented in nova/circuits.rs::CommittedInstanceVar.hash.
     /// Returns `H(i, z_0, z_i, U_i)`, where `i` can be `i` but also `i+1`, and `U_i` is the LCCCS.
-    pub fn hash(
+    pub fn hash<T: Transcript<C::ScalarField>>(
         &self,
-        poseidon_config: &PoseidonConfig<C::ScalarField>,
+        sponge: &T,
         i: C::ScalarField,
         z_0: Vec<C::ScalarField>,
         z_i: Vec<C::ScalarField>,
     ) -> C::ScalarField {
-        let mut sponge = PoseidonSponge::new(poseidon_config);
+        let mut sponge = sponge.clone();
         sponge.absorb(&i);
         sponge.absorb(&z_0);
         sponge.absorb(&z_i);
@@ -172,7 +169,6 @@ pub mod tests {
     use ark_std::test_rng;
     use ark_std::One;
     use ark_std::UniformRand;
-    use ark_std::Zero;
     use std::sync::Arc;
 
     use super::*;
