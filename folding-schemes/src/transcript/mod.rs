@@ -1,31 +1,69 @@
-use crate::Error;
+use ark_crypto_primitives::sponge::{constraints::CryptographicSpongeVar, CryptographicSponge};
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
-use ark_r1cs_std::{boolean::Boolean, fields::fp::FpVar};
-use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
-use ark_std::fmt::Debug;
+use ark_r1cs_std::{
+    boolean::Boolean, fields::fp::FpVar, groups::CurveVar, ToConstraintFieldGadget,
+};
+use ark_relations::r1cs::SynthesisError;
 
 pub mod poseidon;
 
-pub trait Transcript<C: CurveGroup> {
-    type TranscriptConfig: Debug;
+/// An interface for objects that can be absorbed by a `Transcript`.
+///
+/// Matches `Absorb` in `ark-crypto-primitives`.
+pub trait AbsorbNonNative<F: PrimeField> {
+    /// Converts the object into field elements that can be absorbed by a `Transcript`.
+    /// Append the list to `dest`
+    fn to_native_sponge_field_elements(&self, dest: &mut Vec<F>);
 
-    fn new(config: &Self::TranscriptConfig) -> Self;
-    fn absorb(&mut self, v: &C::ScalarField);
-    fn absorb_vec(&mut self, v: &[C::ScalarField]);
-    fn absorb_point(&mut self, v: &C) -> Result<(), Error>;
-    fn get_challenge(&mut self) -> C::ScalarField;
-    /// get_challenge_nbits returns a field element of size nbits
-    fn get_challenge_nbits(&mut self, nbits: usize) -> Vec<bool>;
-    fn get_challenges(&mut self, n: usize) -> Vec<C::ScalarField>;
+    /// Converts the object into field elements that can be absorbed by a `Transcript`.
+    /// Return the list as `Vec`
+    fn to_native_sponge_field_elements_as_vec(&self) -> Vec<F> {
+        let mut result = Vec::new();
+        self.to_native_sponge_field_elements(&mut result);
+        result
+    }
 }
 
-pub trait TranscriptVar<F: PrimeField> {
-    type TranscriptVarConfig: Debug;
+/// An interface for objects that can be absorbed by a `TranscriptVar` whose constraint field
+/// is `F`.
+///
+/// Matches `AbsorbGadget` in `ark-crypto-primitives`.
+pub trait AbsorbNonNativeGadget<F: PrimeField> {
+    /// Converts the object into field elements that can be absorbed by a `TranscriptVar`.
+    fn to_native_sponge_field_elements(&self) -> Result<Vec<FpVar<F>>, SynthesisError>;
+}
 
-    fn new(cs: ConstraintSystemRef<F>, poseidon_config: &Self::TranscriptVarConfig) -> Self;
-    fn absorb(&mut self, v: FpVar<F>) -> Result<(), SynthesisError>;
-    fn absorb_vec(&mut self, v: &[FpVar<F>]) -> Result<(), SynthesisError>;
+pub trait Transcript<F: PrimeField>: CryptographicSponge {
+    /// `absorb_point` is only for points whose `BaseField` is the field of the
+    /// sponge.
+    ///
+    /// If sponge field is `C::ScalarField`, call `absorb_nonnative` instead.
+    fn absorb_point<C: CurveGroup<BaseField = F>>(&mut self, v: &C);
+    fn absorb_nonnative<V: AbsorbNonNative<F>>(&mut self, v: &V);
+
+    fn get_challenge(&mut self) -> F;
+    /// get_challenge_nbits returns a field element of size nbits
+    fn get_challenge_nbits(&mut self, nbits: usize) -> Vec<bool>;
+    fn get_challenges(&mut self, n: usize) -> Vec<F>;
+}
+
+pub trait TranscriptVar<F: PrimeField, S: CryptographicSponge>:
+    CryptographicSpongeVar<F, S>
+{
+    /// `absorb_point` is only for points whose `BaseField` is the field of the
+    /// sponge.
+    ///
+    /// If sponge field is `C::ScalarField`, call `absorb_nonnative` instead.
+    fn absorb_point<C: CurveGroup<BaseField = F>, GC: CurveVar<C, F> + ToConstraintFieldGadget<F>>(
+        &mut self,
+        v: &GC,
+    ) -> Result<(), SynthesisError>;
+    fn absorb_nonnative<V: AbsorbNonNativeGadget<F>>(
+        &mut self,
+        v: &V,
+    ) -> Result<(), SynthesisError>;
+
     fn get_challenge(&mut self) -> Result<FpVar<F>, SynthesisError>;
     /// returns the bit representation of the challenge, we use its output in-circuit for the
     /// `GC.scalar_mul_le` method.

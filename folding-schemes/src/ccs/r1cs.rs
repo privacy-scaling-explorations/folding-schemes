@@ -129,7 +129,6 @@ pub mod tests {
     use super::*;
     use crate::utils::vec::tests::{to_F_matrix, to_F_vec};
 
-    use ark_ff::PrimeField;
     use ark_pallas::Fr;
 
     pub fn get_test_r1cs<F: PrimeField>() -> R1CS<F> {
@@ -167,6 +166,22 @@ pub mod tests {
             input * input * input,             // x^2 * x
             input * input * input + input,     // x^3 + x
         ])
+    }
+
+    pub fn get_test_z_split<F: PrimeField>(input: usize) -> (F, Vec<F>, Vec<F>) {
+        // z = (1, io, w)
+        (
+            F::one(),
+            to_F_vec(vec![
+                input, // io
+            ]),
+            to_F_vec(vec![
+                input * input * input + input + 5, // x^3 + x + 5
+                input * input,                     // x^2
+                input * input * input,             // x^2 * x
+                input * input * input + input,     // x^3 + x
+            ]),
+        )
     }
 
     #[test]

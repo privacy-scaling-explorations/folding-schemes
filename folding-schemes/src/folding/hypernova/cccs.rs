@@ -1,3 +1,4 @@
+use ark_crypto_primitives::sponge::Absorb;
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_std::One;
@@ -12,6 +13,7 @@ use crate::commitment::{
     pedersen::{Params as PedersenParams, Pedersen},
     CommitmentScheme,
 };
+use crate::transcript::AbsorbNonNative;
 use crate::utils::mle::dense_vec_to_dense_mle;
 use crate::utils::vec::mat_vec_mul;
 use crate::utils::virtual_polynomial::{build_eq_x_r_vec, VirtualPolynomial};
@@ -118,6 +120,26 @@ impl<C: CurveGroup> CCCS<C> {
         ccs.check_relation(&z)?;
 
         Ok(())
+    }
+}
+
+impl<C: CurveGroup> Absorb for CCCS<C>
+where
+    C::ScalarField: Absorb,
+{
+    fn to_sponge_bytes(&self, _dest: &mut Vec<u8>) {
+        // This is never called
+        unimplemented!()
+    }
+
+    fn to_sponge_field_elements<F: PrimeField>(&self, dest: &mut Vec<F>) {
+        // We cannot call `to_native_sponge_field_elements(dest)` directly, as
+        // `to_native_sponge_field_elements` needs `F` to be `C::ScalarField`,
+        // but here `F` is a generic `PrimeField`.
+        self.C
+            .to_native_sponge_field_elements_as_vec()
+            .to_sponge_field_elements(dest);
+        self.x.to_sponge_field_elements(dest);
     }
 }
 

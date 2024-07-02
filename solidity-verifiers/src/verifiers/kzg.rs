@@ -78,7 +78,8 @@ mod tests {
         utils::HeaderInclusion,
         ProtocolVerifierKey,
     };
-    use ark_bn254::{Bn254, Fr, G1Projective as G1};
+    use ark_bn254::{Bn254, Fr};
+    use ark_crypto_primitives::sponge::{poseidon::PoseidonSponge, CryptographicSponge};
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_ff::{BigInteger, PrimeField};
     use ark_std::rand::{RngCore, SeedableRng};
@@ -89,10 +90,7 @@ mod tests {
 
     use folding_schemes::{
         commitment::{kzg::KZG, CommitmentScheme},
-        transcript::{
-            poseidon::{poseidon_canonical_config, PoseidonTranscript},
-            Transcript,
-        },
+        transcript::{poseidon::poseidon_canonical_config, Transcript},
     };
 
     use super::KZG10Verifier;
@@ -133,8 +131,8 @@ mod tests {
     fn kzg_verifier_accepts_and_rejects_proofs() {
         let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(test_rng().next_u64());
         let poseidon_config = poseidon_canonical_config::<Fr>();
-        let transcript_p = &mut PoseidonTranscript::<G1>::new(&poseidon_config);
-        let transcript_v = &mut PoseidonTranscript::<G1>::new(&poseidon_config);
+        let transcript_p = &mut PoseidonSponge::<Fr>::new(&poseidon_config);
+        let transcript_v = &mut PoseidonSponge::<Fr>::new(&poseidon_config);
 
         let (kzg_pk, kzg_vk, _, _, _) = setup(DEFAULT_SETUP_LEN);
         let kzg_vk = KZG10VerifierKey::from((kzg_vk.clone(), kzg_pk.powers_of_g[0..3].to_vec()));
@@ -159,7 +157,7 @@ mod tests {
         let (x_proof, y_proof) = proof_affine.xy().unwrap();
         let y = proof.eval.into_bigint().to_bytes_be();
 
-        transcript_v.absorb_point(&cm).unwrap();
+        transcript_v.absorb_nonnative(&cm);
         let x = transcript_v.get_challenge();
 
         let x = x.into_bigint().to_bytes_be();

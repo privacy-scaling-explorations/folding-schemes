@@ -149,13 +149,13 @@ where
     /// the Pairing trait.
     fn prove(
         params: &Self::ProverParams,
-        transcript: &mut impl Transcript<E::G1>,
+        transcript: &mut impl Transcript<E::ScalarField>,
         cm: &E::G1,
         v: &[E::ScalarField],
         _blind: &E::ScalarField,
         _rng: Option<&mut dyn RngCore>,
     ) -> Result<Self::Proof, Error> {
-        transcript.absorb_point(cm)?;
+        transcript.absorb_nonnative(cm);
         let challenge = transcript.get_challenge();
         Self::prove_with_challenge(params, challenge, v, _blind, _rng)
     }
@@ -207,11 +207,11 @@ where
 
     fn verify(
         params: &Self::VerifierParams,
-        transcript: &mut impl Transcript<E::G1>,
+        transcript: &mut impl Transcript<E::ScalarField>,
         cm: &E::G1,
         proof: &Self::Proof,
     ) -> Result<(), Error> {
-        transcript.absorb_point(cm)?;
+        transcript.absorb_nonnative(cm);
         let challenge = transcript.get_challenge();
         Self::verify_with_challenge(params, challenge, cm, proof)
     }
@@ -279,17 +279,18 @@ fn convert_to_bigints<F: PrimeField>(p: &[F]) -> Vec<F::BigInt> {
 #[cfg(test)]
 mod tests {
     use ark_bn254::{Bn254, Fr, G1Projective as G1};
+    use ark_crypto_primitives::sponge::{poseidon::PoseidonSponge, CryptographicSponge};
     use ark_std::{test_rng, UniformRand};
 
     use super::*;
-    use crate::transcript::poseidon::{poseidon_canonical_config, PoseidonTranscript};
+    use crate::transcript::poseidon::poseidon_canonical_config;
 
     #[test]
     fn test_kzg_commitment_scheme() {
         let mut rng = &mut test_rng();
         let poseidon_config = poseidon_canonical_config::<Fr>();
-        let transcript_p = &mut PoseidonTranscript::<G1>::new(&poseidon_config);
-        let transcript_v = &mut PoseidonTranscript::<G1>::new(&poseidon_config);
+        let transcript_p = &mut PoseidonSponge::<Fr>::new(&poseidon_config);
+        let transcript_v = &mut PoseidonSponge::<Fr>::new(&poseidon_config);
 
         let n = 10;
         let (pk, vk): (ProverKey<G1>, VerifierKey<Bn254>) =

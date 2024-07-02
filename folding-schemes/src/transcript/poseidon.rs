@@ -3,114 +3,86 @@ use ark_crypto_primitives::sponge::{
     poseidon::{constraints::PoseidonSpongeVar, PoseidonConfig, PoseidonSponge},
     Absorb, CryptographicSponge,
 };
-use ark_ec::{AffineRepr, CurveGroup, Group};
-use ark_ff::{BigInteger, Field, PrimeField};
-use ark_r1cs_std::{boolean::Boolean, fields::fp::FpVar};
-use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
-use ark_std::Zero;
+use ark_ec::{AffineRepr, CurveGroup};
+use ark_ff::{BigInteger, PrimeField};
+use ark_r1cs_std::{
+    boolean::Boolean, fields::fp::FpVar, groups::CurveVar, ToConstraintFieldGadget,
+};
+use ark_relations::r1cs::SynthesisError;
 
-use crate::transcript::Transcript;
-use crate::Error;
+use super::{AbsorbNonNative, AbsorbNonNativeGadget, Transcript, TranscriptVar};
 
-use super::TranscriptVar;
-
-/// PoseidonTranscript implements the Transcript trait using the Poseidon hash
-pub struct PoseidonTranscript<C: CurveGroup>
-where
-    <C as Group>::ScalarField: Absorb,
-{
-    sponge: PoseidonSponge<C::ScalarField>,
-}
-
-impl<C: CurveGroup> Transcript<C> for PoseidonTranscript<C>
-where
-    <C as Group>::ScalarField: Absorb,
-{
-    type TranscriptConfig = PoseidonConfig<C::ScalarField>;
-
-    fn new(poseidon_config: &Self::TranscriptConfig) -> Self {
-        let sponge = PoseidonSponge::<C::ScalarField>::new(poseidon_config);
-        Self { sponge }
+impl<F: PrimeField + Absorb> Transcript<F> for PoseidonSponge<F> {
+    // Compatible with the in-circuit `TranscriptVar::absorb_point`
+    fn absorb_point<C: CurveGroup<BaseField = F>>(&mut self, p: &C) {
+        let (x, y) = match p.into_affine().xy() {
+            Some((&x, &y)) => (x, y),
+            None => (C::BaseField::zero(), C::BaseField::zero()),
+        };
+        self.absorb(&x);
+        self.absorb(&y);
     }
-    fn absorb(&mut self, v: &C::ScalarField) {
-        self.sponge.absorb(&v);
+    fn absorb_nonnative<V: AbsorbNonNative<F>>(&mut self, v: &V) {
+        self.absorb(&v.to_native_sponge_field_elements_as_vec());
     }
-    fn absorb_vec(&mut self, v: &[C::ScalarField]) {
-        self.sponge.absorb(&v);
-    }
-    fn absorb_point(&mut self, p: &C) -> Result<(), Error> {
-        self.sponge.absorb(&prepare_point(p)?);
-        Ok(())
-    }
-    fn get_challenge(&mut self) -> C::ScalarField {
-        let c = self.sponge.squeeze_field_elements(1);
-        self.sponge.absorb(&c[0]);
+    fn get_challenge(&mut self) -> F {
+        let c = self.squeeze_field_elements(1);
+        self.absorb(&c[0]);
         c[0]
     }
     fn get_challenge_nbits(&mut self, nbits: usize) -> Vec<bool> {
-        self.sponge.squeeze_bits(nbits)
+        let bits = self.squeeze_bits(nbits);
+        self.absorb(&F::from(F::BigInt::from_bits_le(&bits)));
+        bits
     }
-    fn get_challenges(&mut self, n: usize) -> Vec<C::ScalarField> {
-        let c = self.sponge.squeeze_field_elements(n);
-        self.sponge.absorb(&c);
+    fn get_challenges(&mut self, n: usize) -> Vec<F> {
+        let c = self.squeeze_field_elements(n);
+        self.absorb(&c);
         c
     }
 }
 
-// Returns the point coordinates in Fr, so it can be absorbed by the transcript. It does not work
-// over bytes in order to have a logic that can be reproduced in-circuit.
-fn prepare_point<C: CurveGroup>(p: &C) -> Result<Vec<C::ScalarField>, Error> {
-    let affine = p.into_affine();
-    let zero_point = (&C::BaseField::zero(), &C::BaseField::zero());
-    let xy = affine.xy().unwrap_or(zero_point);
-
-    let x_bi =
-        xy.0.to_base_prime_field_elements()
-            .next()
-            .expect("a")
-            .into_bigint();
-    let y_bi =
-        xy.1.to_base_prime_field_elements()
-            .next()
-            .expect("a")
-            .into_bigint();
-    Ok(vec![
-        C::ScalarField::from_le_bytes_mod_order(x_bi.to_bytes_le().as_ref()),
-        C::ScalarField::from_le_bytes_mod_order(y_bi.to_bytes_le().as_ref()),
-    ])
-}
-
-/// PoseidonTranscriptVar implements the gadget compatible with PoseidonTranscript
-pub struct PoseidonTranscriptVar<F: PrimeField> {
-    sponge: PoseidonSpongeVar<F>,
-}
-impl<F: PrimeField> TranscriptVar<F> for PoseidonTranscriptVar<F> {
-    type TranscriptVarConfig = PoseidonConfig<F>;
-
-    fn new(cs: ConstraintSystemRef<F>, poseidon_config: &Self::TranscriptVarConfig) -> Self {
-        let sponge = PoseidonSpongeVar::<F>::new(cs, poseidon_config);
-        Self { sponge }
+impl<F: PrimeField> TranscriptVar<F, PoseidonSponge<F>> for PoseidonSpongeVar<F> {
+    fn absorb_point<
+        C: CurveGroup<BaseField = F>,
+        GC: CurveVar<C, F> + ToConstraintFieldGadget<F>,
+    >(
+        &mut self,
+        v: &GC,
+    ) -> Result<(), SynthesisError> {
+        let mut vec = v.to_constraint_field()?;
+        // The last element in the vector tells whether the point is infinity,
+        // but we can in fact avoid absorbing it without loss of soundness.
+        // This is because the `to_constraint_field` method internally invokes
+        // [`ProjectiveVar::to_afine`](https://github.com/arkworks-rs/r1cs-std/blob/4020fbc22625621baa8125ede87abaeac3c1ca26/src/groups/curves/short_weierstrass/mod.rs#L160-L195),
+        // which guarantees that an infinity point is represented as `(0, 0)`,
+        // but the y-coordinate of a non-infinity point is never 0 (for why, see
+        // https://crypto.stackexchange.com/a/108242 ).
+        vec.pop();
+        self.absorb(&vec)
     }
-    fn absorb(&mut self, v: FpVar<F>) -> Result<(), SynthesisError> {
-        self.sponge.absorb(&v)
-    }
-    fn absorb_vec(&mut self, v: &[FpVar<F>]) -> Result<(), SynthesisError> {
-        self.sponge.absorb(&v)
+    fn absorb_nonnative<V: AbsorbNonNativeGadget<F>>(
+        &mut self,
+        v: &V,
+    ) -> Result<(), SynthesisError> {
+        self.absorb(&v.to_native_sponge_field_elements()?)
     }
     fn get_challenge(&mut self) -> Result<FpVar<F>, SynthesisError> {
-        let c = self.sponge.squeeze_field_elements(1)?;
-        self.sponge.absorb(&c[0])?;
+        let c = self.squeeze_field_elements(1)?;
+        self.absorb(&c[0])?;
         Ok(c[0].clone())
     }
 
     /// returns the bit representation of the challenge, we use its output in-circuit for the
     /// `GC.scalar_mul_le` method.
     fn get_challenge_nbits(&mut self, nbits: usize) -> Result<Vec<Boolean<F>>, SynthesisError> {
-        self.sponge.squeeze_bits(nbits)
+        let bits = self.squeeze_bits(nbits)?;
+        self.absorb(&Boolean::le_bits_to_fp_var(&bits)?)?;
+        Ok(bits)
     }
     fn get_challenges(&mut self, n: usize) -> Result<Vec<FpVar<F>>, SynthesisError> {
-        let c = self.sponge.squeeze_field_elements(n)?;
-        self.sponge.absorb(&c)?;
+        let c = self.squeeze_field_elements(n)?;
+        self.absorb(&c)?;
         Ok(c)
     }
 }
@@ -147,12 +119,17 @@ pub fn poseidon_canonical_config<F: PrimeField>() -> PoseidonConfig<F> {
 
 #[cfg(test)]
 pub mod tests {
+    use crate::folding::circuits::nonnative::affine::NonNativeAffineVar;
+
     use super::*;
-    use ark_bn254::{constraints::GVar, Fq, Fr, G1Projective as G1};
-    use ark_grumpkin::Projective;
-    use ark_r1cs_std::{alloc::AllocVar, groups::CurveVar, R1CSVar};
+    use ark_bn254::{constraints::GVar, g1::Config, Fq, Fr, G1Projective as G1};
+    use ark_ec::Group;
+    use ark_ff::UniformRand;
+    use ark_r1cs_std::{
+        alloc::AllocVar, groups::curves::short_weierstrass::ProjectiveVar, R1CSVar,
+    };
     use ark_relations::r1cs::ConstraintSystem;
-    use std::ops::Mul;
+    use ark_std::test_rng;
 
     // Test with value taken from https://github.com/iden3/circomlibjs/blob/43cc582b100fc3459cf78d903a6f538e5d7f38ee/test/poseidon.js#L32
     #[test]
@@ -179,18 +156,68 @@ pub mod tests {
     }
 
     #[test]
+    fn test_transcript_and_transcriptvar_absorb_native_point() {
+        // use 'native' transcript
+        let config = poseidon_canonical_config::<Fq>();
+        let mut tr = PoseidonSponge::<Fq>::new(&config);
+        let rng = &mut test_rng();
+
+        let p = G1::rand(rng);
+        tr.absorb_point(&p);
+        let c = tr.get_challenge();
+
+        // use 'gadget' transcript
+        let cs = ConstraintSystem::<Fq>::new_ref();
+        let mut tr_var = PoseidonSpongeVar::<Fq>::new(cs.clone(), &config);
+        let p_var = ProjectiveVar::<Config, FpVar<Fq>>::new_witness(
+            ConstraintSystem::<Fq>::new_ref(),
+            || Ok(p),
+        )
+        .unwrap();
+        tr_var.absorb_point(&p_var).unwrap();
+        let c_var = tr_var.get_challenge().unwrap();
+
+        // assert that native & gadget transcripts return the same challenge
+        assert_eq!(c, c_var.value().unwrap());
+    }
+
+    #[test]
+    fn test_transcript_and_transcriptvar_absorb_nonnative_point() {
+        // use 'native' transcript
+        let config = poseidon_canonical_config::<Fr>();
+        let mut tr = PoseidonSponge::<Fr>::new(&config);
+        let rng = &mut test_rng();
+
+        let p = G1::rand(rng);
+        tr.absorb_nonnative(&p);
+        let c = tr.get_challenge();
+
+        // use 'gadget' transcript
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        let mut tr_var = PoseidonSpongeVar::<Fr>::new(cs.clone(), &config);
+        let p_var =
+            NonNativeAffineVar::<G1>::new_witness(ConstraintSystem::<Fr>::new_ref(), || Ok(p))
+                .unwrap();
+        tr_var.absorb_nonnative(&p_var).unwrap();
+        let c_var = tr_var.get_challenge().unwrap();
+
+        // assert that native & gadget transcripts return the same challenge
+        assert_eq!(c, c_var.value().unwrap());
+    }
+
+    #[test]
     fn test_transcript_and_transcriptvar_get_challenge() {
         // use 'native' transcript
         let config = poseidon_canonical_config::<Fr>();
-        let mut tr = PoseidonTranscript::<G1>::new(&config);
+        let mut tr = PoseidonSponge::<Fr>::new(&config);
         tr.absorb(&Fr::from(42_u32));
         let c = tr.get_challenge();
 
         // use 'gadget' transcript
         let cs = ConstraintSystem::<Fr>::new_ref();
-        let mut tr_var = PoseidonTranscriptVar::<Fr>::new(cs.clone(), &config);
+        let mut tr_var = PoseidonSpongeVar::<Fr>::new(cs.clone(), &config);
         let v = FpVar::<Fr>::new_witness(cs.clone(), || Ok(Fr::from(42_u32))).unwrap();
-        tr_var.absorb(v).unwrap();
+        tr_var.absorb(&v).unwrap();
         let c_var = tr_var.get_challenge().unwrap();
 
         // assert that native & gadget transcripts return the same challenge
@@ -203,7 +230,7 @@ pub mod tests {
 
         // use 'native' transcript
         let config = poseidon_canonical_config::<Fq>();
-        let mut tr = PoseidonTranscript::<Projective>::new(&config);
+        let mut tr = PoseidonSponge::<Fq>::new(&config);
         tr.absorb(&Fq::from(42_u32));
 
         // get challenge from native transcript
@@ -211,9 +238,9 @@ pub mod tests {
 
         // use 'gadget' transcript
         let cs = ConstraintSystem::<Fq>::new_ref();
-        let mut tr_var = PoseidonTranscriptVar::<Fq>::new(cs.clone(), &config);
+        let mut tr_var = PoseidonSpongeVar::<Fq>::new(cs.clone(), &config);
         let v = FpVar::<Fq>::new_witness(cs.clone(), || Ok(Fq::from(42_u32))).unwrap();
-        tr_var.absorb(v).unwrap();
+        tr_var.absorb(&v).unwrap();
 
         // get challenge from circuit transcript
         let c_var = tr_var.get_challenge_nbits(nbits).unwrap();
@@ -226,7 +253,7 @@ pub mod tests {
 
         // native c*P
         let c_Fr = Fr::from_bigint(BigInteger::from_bits_le(&c_bits)).unwrap();
-        let cP_native = P.mul(c_Fr);
+        let cP_native = P * c_Fr;
 
         // native c*P using mul_bits_be (notice the .rev to convert the LE to BE)
         let cP_native_bits = P.mul_bits_be(c_bits.into_iter().rev());

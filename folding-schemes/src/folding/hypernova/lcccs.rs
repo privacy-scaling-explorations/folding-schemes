@@ -1,7 +1,4 @@
-use ark_crypto_primitives::{
-    crh::{poseidon::CRH, CRHScheme},
-    sponge::{poseidon::PoseidonConfig, Absorb},
-};
+use ark_crypto_primitives::sponge::Absorb;
 use ark_ec::{CurveGroup, Group};
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
@@ -10,15 +7,15 @@ use ark_std::rand::Rng;
 use ark_std::Zero;
 
 use super::Witness;
-use crate::ccs::CCS;
 use crate::commitment::{
     pedersen::{Params as PedersenParams, Pedersen},
     CommitmentScheme,
 };
-use crate::folding::circuits::nonnative::affine::nonnative_affine_to_field_elements;
+use crate::transcript::AbsorbNonNative;
 use crate::utils::mle::dense_vec_to_dense_mle;
 use crate::utils::vec::mat_vec_mul;
 use crate::Error;
+use crate::{ccs::CCS, transcript::Transcript};
 
 /// Linearized Committed CCS instance
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -122,6 +119,29 @@ impl<C: CurveGroup> LCCCS<C> {
     }
 }
 
+impl<C: CurveGroup> Absorb for LCCCS<C>
+where
+    C::ScalarField: Absorb,
+{
+    fn to_sponge_bytes(&self, _dest: &mut Vec<u8>) {
+        // This is never called
+        unimplemented!()
+    }
+
+    fn to_sponge_field_elements<F: PrimeField>(&self, dest: &mut Vec<F>) {
+        // We cannot call `to_native_sponge_field_elements(dest)` directly, as
+        // `to_native_sponge_field_elements` needs `F` to be `C::ScalarField`,
+        // but here `F` is a generic `PrimeField`.
+        self.C
+            .to_native_sponge_field_elements_as_vec()
+            .to_sponge_field_elements(dest);
+        self.u.to_sponge_field_elements(dest);
+        self.x.to_sponge_field_elements(dest);
+        self.r_x.to_sponge_field_elements(dest);
+        self.v.to_sponge_field_elements(dest);
+    }
+}
+
 impl<C: CurveGroup> LCCCS<C>
 where
     <C as Group>::ScalarField: Absorb,
@@ -130,31 +150,19 @@ where
     /// [`LCCCS`].hash implements the committed instance hash compatible with the gadget
     /// implemented in nova/circuits.rs::CommittedInstanceVar.hash.
     /// Returns `H(i, z_0, z_i, U_i)`, where `i` can be `i` but also `i+1`, and `U_i` is the LCCCS.
-    pub fn hash(
+    pub fn hash<T: Transcript<C::ScalarField>>(
         &self,
-        poseidon_config: &PoseidonConfig<C::ScalarField>,
+        sponge: &T,
         i: C::ScalarField,
         z_0: Vec<C::ScalarField>,
         z_i: Vec<C::ScalarField>,
-    ) -> Result<C::ScalarField, Error> {
-        let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(self.C)?;
-
-        CRH::<C::ScalarField>::evaluate(
-            poseidon_config,
-            vec![
-                vec![i],
-                z_0,
-                z_i,
-                C_x,
-                C_y,
-                vec![self.u],
-                self.x.clone(),
-                self.r_x.clone(),
-                self.v.clone(),
-            ]
-            .concat(),
-        )
-        .map_err(|e| Error::Other(e.to_string()))
+    ) -> C::ScalarField {
+        let mut sponge = sponge.clone();
+        sponge.absorb(&i);
+        sponge.absorb(&z_0);
+        sponge.absorb(&z_i);
+        sponge.absorb(&self);
+        sponge.squeeze_field_elements(1)[0]
     }
 }
 
@@ -164,7 +172,6 @@ pub mod tests {
     use ark_std::test_rng;
     use ark_std::One;
     use ark_std::UniformRand;
-    use ark_std::Zero;
     use std::sync::Arc;
 
     use super::*;

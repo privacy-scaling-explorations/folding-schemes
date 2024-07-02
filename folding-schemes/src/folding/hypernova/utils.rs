@@ -173,7 +173,6 @@ pub mod tests {
     use crate::utils::hypercube::BooleanHypercube;
     use crate::utils::mle::matrix_to_dense_mle;
     use crate::utils::multilinear_polynomial::tests::fix_last_variables;
-    use crate::utils::virtual_polynomial::eq_eval;
 
     /// Given M(x,y) matrix and a random field element `r`, test that ~M(r,y) is is an s'-variable polynomial which
     /// compresses every column j of the M(x,y) matrix by performing a random linear combination between the elements
