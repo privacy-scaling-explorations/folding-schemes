@@ -118,7 +118,7 @@ mod tests {
     use super::*;
     use crate::{
         ccs::r1cs::tests::get_test_r1cs,
-        folding::protogalaxy::folding::{tests::prepare_inputs, Folding}, transcript::poseidon::poseidon_test_config,
+        folding::protogalaxy::folding::{tests::prepare_inputs, Folding}, transcript::poseidon::poseidon_canonical_config,
     };
 
     #[test]
@@ -128,7 +128,7 @@ mod tests {
         let r1cs = get_test_r1cs::<Fr>();
 
         // init Prover & Verifier's transcript
-        let poseidon_config = poseidon_test_config::<Fr>();
+        let poseidon_config = poseidon_canonical_config::<Fr>();
         let mut transcript_p = PoseidonSponge::new(&poseidon_config);
         let mut transcript_v = PoseidonSponge::new(&poseidon_config);
 
