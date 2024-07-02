@@ -3,7 +3,7 @@ use ark_ec::{CurveGroup, Group};
 use ark_std::{One, Zero};
 
 use super::{CommittedInstance, Witness};
-use crate::ccs::r1cs::R1CS;
+use crate::arith::{r1cs::R1CS, Arith};
 use crate::Error;
 
 /// NovaR1CS extends R1CS methods with Nova specific methods
@@ -39,6 +39,7 @@ where
         (w_dummy, u_dummy)
     }
 
+    // notice that this method does not check the commitment correctness
     fn check_instance_relation(
         &self,
         W: &Witness<C>,
@@ -52,6 +53,7 @@ where
         self.check_relation(&Z)
     }
 
+    // notice that this method does not check the commitment correctness
     fn check_relaxed_instance_relation(
         &self,
         W: &Witness<C>,

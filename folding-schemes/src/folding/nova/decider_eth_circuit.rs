@@ -20,7 +20,7 @@ use ark_std::{log2, Zero};
 use core::{borrow::Borrow, marker::PhantomData};
 
 use super::{circuits::ChallengeGadget, nifs::NIFS};
-use crate::ccs::r1cs::R1CS;
+use crate::arith::r1cs::R1CS;
 use crate::commitment::{pedersen::Params as PedersenParams, CommitmentScheme};
 use crate::folding::circuits::{
     nonnative::{
@@ -223,6 +223,8 @@ where
     /// CycleFold PedersenParams over C2
     pub cf_pedersen_params: PedersenParams<C2>,
     pub poseidon_config: PoseidonConfig<CF1<C1>>,
+    /// public params hash
+    pub pp_hash: Option<C1::ScalarField>,
     pub i: Option<CF1<C1>>,
     /// initial state
     pub z_0: Option<Vec<C1::ScalarField>>,
@@ -264,7 +266,7 @@ where
     ) -> Result<Self, Error> {
         // compute the U_{i+1}, W_{i+1}
         let (T, cmT) = NIFS::<C1, CS1>::compute_cmT(
-            &nova.cs_params,
+            &nova.cs_pp,
             &nova.r1cs.clone(),
             &nova.w_i.clone(),
             &nova.u_i.clone(),
@@ -273,6 +275,7 @@ where
         )?;
         let r_bits = ChallengeGadget::<C1>::get_challenge_native(
             &nova.poseidon_config,
+            nova.pp_hash,
             nova.U_i.clone(),
             nova.u_i.clone(),
             cmT,
@@ -315,8 +318,9 @@ where
             cf_E_len: nova.cf_W_i.E.len(),
             r1cs: nova.r1cs,
             cf_r1cs: nova.cf_r1cs,
-            cf_pedersen_params: nova.cf_cs_params,
+            cf_pedersen_params: nova.cf_cs_pp,
             poseidon_config: nova.poseidon_config,
+            pp_hash: Some(nova.pp_hash),
             i: Some(nova.i),
             z_0: Some(nova.z_0),
             z_i: Some(nova.z_i),
@@ -360,6 +364,9 @@ where
                 Ok(self.r1cs.clone())
             })?;
 
+        let pp_hash = FpVar::<CF1<C1>>::new_input(cs.clone(), || {
+            Ok(self.pp_hash.unwrap_or_else(CF1::<C1>::zero))
+        })?;
         let i =
             FpVar::<CF1<C1>>::new_input(cs.clone(), || Ok(self.i.unwrap_or_else(CF1::<C1>::zero)))?;
         let z_0 = Vec::<FpVar<CF1<C1>>>::new_input(cs.clone(), || {
@@ -421,9 +428,13 @@ where
         (u_i.u.is_one()?).enforce_equal(&Boolean::TRUE)?;
 
         // 3.a u_i.x[0] == H(i, z_0, z_i, U_i)
-        let (u_i_x, U_i_vec) =
-            U_i.clone()
-                .hash(&crh_params, i.clone(), z_0.clone(), z_i.clone())?;
+        let (u_i_x, U_i_vec) = U_i.clone().hash(
+            &crh_params,
+            pp_hash.clone(),
+            i.clone(),
+            z_0.clone(),
+            z_i.clone(),
+        )?;
         (u_i.x[0]).enforce_equal(&u_i_x)?;
 
         #[cfg(feature = "light-test")]
@@ -437,11 +448,12 @@ where
         {
             // imports here instead of at the top of the file, so we avoid having multiple
             // `#[cfg(not(test))]`
+            use super::NOVA_CF_N_POINTS;
             use crate::commitment::pedersen::PedersenGadget;
-            use crate::folding::nova::cyclefold::{CycleFoldCommittedInstanceVar, CF_IO_LEN};
+            use crate::folding::nova::cyclefold::{cf_io_len, CycleFoldCommittedInstanceVar};
             use ark_r1cs_std::ToBitsGadget;
 
-            let cf_u_dummy_native = CommittedInstance::<C2>::dummy(CF_IO_LEN);
+            let cf_u_dummy_native = CommittedInstance::<C2>::dummy(cf_io_len(NOVA_CF_N_POINTS));
             let w_dummy_native = Witness::<C2>::new(
                 vec![C2::ScalarField::zero(); self.cf_r1cs.A.n_cols - 1 - self.cf_r1cs.l],
                 self.cf_E_len,
@@ -454,7 +466,7 @@ where
             })?;
 
             // 3.b u_i.x[1] == H(cf_U_i)
-            let (cf_u_i_x, _) = cf_U_i.clone().hash(&crh_params)?;
+            let (cf_u_i_x, _) = cf_U_i.clone().hash(&crh_params, pp_hash)?;
             (u_i.x[1]).enforce_equal(&cf_u_i_x)?;
 
             // 4. check Pedersen commitments of cf_U_i.{cmE, cmW}
@@ -512,6 +524,7 @@ where
         let r_bits = ChallengeGadget::<C1>::get_challenge_gadget(
             cs.clone(),
             &self.poseidon_config,
+            pp_hash,
             U_i_vec,
             u_i.clone(),
             cmT.clone(),
@@ -597,7 +610,6 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
     use ark_crypto_primitives::crh::{
         sha256::{
             constraints::{Sha256Gadget, UnitVar},
@@ -611,14 +623,19 @@ pub mod tests {
     use ark_std::{One, UniformRand};
     use ark_vesta::{constraints::GVar as GVar2, Projective as Projective2};
 
+    use super::*;
+    use crate::arith::{
+        r1cs::{
+            tests::{get_test_r1cs, get_test_z},
+            {extract_r1cs, extract_w_x},
+        },
+        Arith,
+    };
     use crate::commitment::pedersen::Pedersen;
-    use crate::folding::nova::{get_cs_params_len, ProverParams, VerifierParams};
+    use crate::folding::nova::PreprocessorParam;
     use crate::frontend::tests::{CubicFCircuit, CustomFCircuit, WrapperCircuit};
     use crate::transcript::poseidon::poseidon_canonical_config;
     use crate::FoldingScheme;
-
-    use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z};
-    use crate::ccs::r1cs::{extract_r1cs, extract_w_x};
 
     #[test]
     fn test_relaxed_r1cs_small_gadget_handcrafted() {
@@ -773,23 +790,6 @@ pub mod tests {
         let F_circuit = CubicFCircuit::<Fr>::new(()).unwrap();
         let z_0 = vec![Fr::from(3_u32)];
 
-        // get the CS & CF_CS len
-        let (cs_len, cf_cs_len) =
-            get_cs_params_len::<Projective, GVar, Projective2, GVar2, CubicFCircuit<Fr>>(
-                &poseidon_config,
-                F_circuit,
-            )
-            .unwrap();
-        let (pedersen_params, _) = Pedersen::<Projective>::setup(&mut rng, cs_len).unwrap();
-        let (cf_pedersen_params, _) = Pedersen::<Projective2>::setup(&mut rng, cf_cs_len).unwrap();
-
-        let prover_params =
-            ProverParams::<Projective, Projective2, Pedersen<Projective>, Pedersen<Projective2>> {
-                poseidon_config: poseidon_config.clone(),
-                cs_params: pedersen_params,
-                cf_cs_params: cf_pedersen_params,
-            };
-
         type NOVA = Nova<
             Projective,
             GVar,
@@ -799,16 +799,25 @@ pub mod tests {
             Pedersen<Projective>,
             Pedersen<Projective2>,
         >;
+        let prep_param = PreprocessorParam::<
+            Projective,
+            Projective2,
+            CubicFCircuit<Fr>,
+            Pedersen<Projective>,
+            Pedersen<Projective2>,
+        >::new(poseidon_config, F_circuit);
+        let (prover_params, verifier_params) = NOVA::preprocess(&mut rng, &prep_param).unwrap();
 
         // generate a Nova instance and do a step of it
-        let mut nova = NOVA::init(&prover_params, F_circuit, z_0.clone()).unwrap();
-        nova.prove_step(vec![]).unwrap();
+        let mut nova = NOVA::init(
+            (prover_params, verifier_params.clone()),
+            F_circuit,
+            z_0.clone(),
+        )
+        .unwrap();
+        nova.prove_step(&mut rng, vec![], ()).unwrap();
+
         let ivc_v = nova.clone();
-        let verifier_params = VerifierParams::<Projective, Projective2> {
-            poseidon_config: poseidon_config.clone(),
-            r1cs: ivc_v.clone().r1cs,
-            cf_r1cs: ivc_v.clone().cf_r1cs,
-        };
         let (running_instance, incoming_instance, cyclefold_instance) = ivc_v.instances();
         NOVA::verify(
             verifier_params,

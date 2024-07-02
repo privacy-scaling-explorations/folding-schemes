@@ -11,7 +11,7 @@ use super::{
     utils::{compute_c, compute_g, compute_sigmas_thetas},
     Witness,
 };
-use crate::ccs::CCS;
+use crate::arith::ccs::CCS;
 use crate::constants::N_BITS_RO;
 use crate::folding::circuits::nonnative::affine::nonnative_affine_to_field_elements;
 use crate::transcript::Transcript;
@@ -72,7 +72,7 @@ where
         sigmas_thetas: &SigmasThetas<C::ScalarField>,
         r_x_prime: Vec<C::ScalarField>,
         rho: C::ScalarField,
-    ) -> LCCCS<C> {
+    ) -> (LCCCS<C>, Vec<C::ScalarField>) {
         let (sigmas, thetas) = (sigmas_thetas.0.clone(), sigmas_thetas.1.clone());
         let mut C_folded = C::zero();
         let mut u_folded = C::ScalarField::zero();
@@ -80,6 +80,7 @@ where
         let mut v_folded: Vec<C::ScalarField> = vec![C::ScalarField::zero(); sigmas[0].len()];
 
         let mut rho_i = C::ScalarField::one();
+        let mut rho_powers = vec![C::ScalarField::zero(); lcccs.len() + cccs.len() - 1];
         for i in 0..(lcccs.len() + cccs.len()) {
             let c: C;
             let u: C::ScalarField;
@@ -119,16 +120,28 @@ where
                 .map(|(a_i, b_i)| *a_i + b_i)
                 .collect();
 
+            // compute the next power of rho
             rho_i *= rho;
+            // crop the size of rho_i to N_BITS_RO
+            let rho_i_bits = rho_i.into_bigint().to_bits_le();
+            rho_i = C::ScalarField::from_bigint(BigInteger::from_bits_le(&rho_i_bits[..N_BITS_RO]))
+                .unwrap();
+            if i < lcccs.len() + cccs.len() - 1 {
+                // store the cropped rho_i into the rho_powers vector
+                rho_powers[i] = rho_i;
+            }
         }
 
-        LCCCS::<C> {
-            C: C_folded,
-            u: u_folded,
-            x: x_folded,
-            r_x: r_x_prime,
-            v: v_folded,
-        }
+        (
+            LCCCS::<C> {
+                C: C_folded,
+                u: u_folded,
+                x: x_folded,
+                r_x: r_x_prime,
+                v: v_folded,
+            },
+            rho_powers,
+        )
     }
 
     pub fn fold_witness(
@@ -139,8 +152,9 @@ where
         let mut w_folded: Vec<C::ScalarField> = vec![C::ScalarField::zero(); w_lcccs[0].w.len()];
         let mut r_w_folded = C::ScalarField::zero();
 
+        let mut rho_i = C::ScalarField::one();
         for i in 0..(w_lcccs.len() + w_cccs.len()) {
-            let rho_i = rho.pow([i as u64]);
+            // let rho_i = rho.pow([i as u64]);
             let w: Vec<C::ScalarField>;
             let r_w: C::ScalarField;
 
@@ -163,6 +177,13 @@ where
                 .collect();
 
             r_w_folded += rho_i * r_w;
+
+            // compute the next power of rho
+            rho_i *= rho;
+            // crop the size of rho_i to N_BITS_RO
+            let rho_i_bits = rho_i.into_bigint().to_bits_le();
+            rho_i = C::ScalarField::from_bigint(BigInteger::from_bits_le(&rho_i_bits[..N_BITS_RO]))
+                .unwrap();
         }
         Witness {
             w: w_folded,
@@ -182,7 +203,16 @@ where
         new_instances: &[CCCS<C>],
         w_lcccs: &[Witness<C::ScalarField>],
         w_cccs: &[Witness<C::ScalarField>],
-    ) -> Result<(NIMFSProof<C>, LCCCS<C>, Witness<C::ScalarField>, Vec<bool>), Error> {
+    ) -> Result<
+        (
+            NIMFSProof<C>,
+            LCCCS<C>,
+            Witness<C::ScalarField>,
+            // Vec<bool>,
+            Vec<C::ScalarField>,
+        ),
+        Error,
+    > {
         // absorb instances to transcript
         for U_i in running_instances {
             let (C_x, C_y) = nonnative_affine_to_field_elements::<C>(U_i.C)?;
@@ -262,7 +292,7 @@ where
             C::ScalarField::from_bigint(BigInteger::from_bits_le(&rho_bits)).unwrap();
 
         // Step 7: Create the folded instance
-        let folded_lcccs = Self::fold(
+        let (folded_lcccs, rho_powers) = Self::fold(
             running_instances,
             new_instances,
             &sigmas_thetas,
@@ -280,7 +310,7 @@ where
             },
             folded_lcccs,
             folded_witness,
-            rho_bits,
+            rho_powers,
         ))
     }
 
@@ -399,14 +429,18 @@ where
             &proof.sigmas_thetas,
             r_x_prime,
             rho,
-        ))
+        )
+        .0)
     }
 }
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::ccs::tests::{get_test_ccs, get_test_z};
+    use crate::arith::{
+        ccs::tests::{get_test_ccs, get_test_z},
+        Arith,
+    };
     use crate::transcript::poseidon::poseidon_canonical_config;
     use crate::transcript::poseidon::PoseidonTranscript;
     use ark_std::test_rng;
@@ -432,16 +466,20 @@ pub mod tests {
         let (pedersen_params, _) =
             Pedersen::<Projective>::setup(&mut rng, ccs.n - ccs.l - 1).unwrap();
 
-        let (lcccs, w1) = ccs.to_lcccs(&mut rng, &pedersen_params, &z1).unwrap();
-        let (cccs, w2) = ccs.to_cccs(&mut rng, &pedersen_params, &z2).unwrap();
+        let (lcccs, w1) = ccs
+            .to_lcccs::<_, Projective, Pedersen<Projective>>(&mut rng, &pedersen_params, &z1)
+            .unwrap();
+        let (cccs, w2) = ccs
+            .to_cccs::<_, Projective, Pedersen<Projective>>(&mut rng, &pedersen_params, &z2)
+            .unwrap();
 
-        lcccs.check_relation(&pedersen_params, &ccs, &w1).unwrap();
-        cccs.check_relation(&pedersen_params, &ccs, &w2).unwrap();
+        lcccs.check_relation(&ccs, &w1).unwrap();
+        cccs.check_relation(&ccs, &w2).unwrap();
 
         let mut rng = test_rng();
         let rho = Fr::rand(&mut rng);
 
-        let folded = NIMFS::<Projective, PoseidonTranscript<Projective>>::fold(
+        let (folded, _) = NIMFS::<Projective, PoseidonTranscript<Projective>>::fold(
             &[lcccs],
             &[cccs],
             &sigmas_thetas,
@@ -453,9 +491,7 @@ pub mod tests {
             NIMFS::<Projective, PoseidonTranscript<Projective>>::fold_witness(&[w1], &[w2], rho);
 
         // check lcccs relation
-        folded
-            .check_relation(&pedersen_params, &ccs, &w_folded)
-            .unwrap();
+        folded.check_relation(&ccs, &w_folded).unwrap();
     }
 
     /// Perform multifolding of an LCCCS instance with a CCCS instance (as described in the paper)
@@ -474,9 +510,13 @@ pub mod tests {
         let z_2 = get_test_z(4);
 
         // Create the LCCCS instance out of z_1
-        let (running_instance, w1) = ccs.to_lcccs(&mut rng, &pedersen_params, &z_1).unwrap();
+        let (running_instance, w1) = ccs
+            .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z_1)
+            .unwrap();
         // Create the CCCS instance out of z_2
-        let (new_instance, w2) = ccs.to_cccs(&mut rng, &pedersen_params, &z_2).unwrap();
+        let (new_instance, w2) = ccs
+            .to_cccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z_2)
+            .unwrap();
 
         // Prover's transcript
         let poseidon_config = poseidon_canonical_config::<Fr>();
@@ -513,9 +553,7 @@ pub mod tests {
         assert_eq!(folded_lcccs, folded_lcccs_v);
 
         // Check that the folded LCCCS instance is a valid instance with respect to the folded witness
-        folded_lcccs
-            .check_relation(&pedersen_params, &ccs, &folded_witness)
-            .unwrap();
+        folded_lcccs.check_relation(&ccs, &folded_witness).unwrap();
     }
 
     /// Perform multiple steps of multifolding of an LCCCS instance with a CCCS instance
@@ -530,8 +568,9 @@ pub mod tests {
 
         // LCCCS witness
         let z_1 = get_test_z(2);
-        let (mut running_instance, mut w1) =
-            ccs.to_lcccs(&mut rng, &pedersen_params, &z_1).unwrap();
+        let (mut running_instance, mut w1) = ccs
+            .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z_1)
+            .unwrap();
 
         let poseidon_config = poseidon_canonical_config::<Fr>();
 
@@ -548,7 +587,9 @@ pub mod tests {
             // CCS witness
             let z_2 = get_test_z(i);
 
-            let (new_instance, w2) = ccs.to_cccs(&mut rng, &pedersen_params, &z_2).unwrap();
+            let (new_instance, w2) = ccs
+                .to_cccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z_2)
+                .unwrap();
 
             // run the prover side of the multifolding
             let (proof, folded_lcccs, folded_witness, _) =
@@ -574,9 +615,7 @@ pub mod tests {
             assert_eq!(folded_lcccs, folded_lcccs_v);
 
             // check that the folded instance with the folded witness holds the LCCCS relation
-            folded_lcccs
-                .check_relation(&pedersen_params, &ccs, &folded_witness)
-                .unwrap();
+            folded_lcccs.check_relation(&ccs, &folded_witness).unwrap();
 
             running_instance = folded_lcccs;
             w1 = folded_witness;
@@ -612,7 +651,9 @@ pub mod tests {
         let mut lcccs_instances = Vec::new();
         let mut w_lcccs = Vec::new();
         for z_i in z_lcccs.iter() {
-            let (running_instance, w) = ccs.to_lcccs(&mut rng, &pedersen_params, z_i).unwrap();
+            let (running_instance, w) = ccs
+                .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                .unwrap();
             lcccs_instances.push(running_instance);
             w_lcccs.push(w);
         }
@@ -620,7 +661,9 @@ pub mod tests {
         let mut cccs_instances = Vec::new();
         let mut w_cccs = Vec::new();
         for z_i in z_cccs.iter() {
-            let (new_instance, w) = ccs.to_cccs(&mut rng, &pedersen_params, z_i).unwrap();
+            let (new_instance, w) = ccs
+                .to_cccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                .unwrap();
             cccs_instances.push(new_instance);
             w_cccs.push(w);
         }
@@ -660,9 +703,7 @@ pub mod tests {
         assert_eq!(folded_lcccs, folded_lcccs_v);
 
         // Check that the folded LCCCS instance is a valid instance with respect to the folded witness
-        folded_lcccs
-            .check_relation(&pedersen_params, &ccs, &folded_witness)
-            .unwrap();
+        folded_lcccs.check_relation(&ccs, &folded_witness).unwrap();
     }
 
     /// Test that generates mu>1 and nu>1 instances, and folds them in a single multifolding step
@@ -710,7 +751,9 @@ pub mod tests {
             let mut lcccs_instances = Vec::new();
             let mut w_lcccs = Vec::new();
             for z_i in z_lcccs.iter() {
-                let (running_instance, w) = ccs.to_lcccs(&mut rng, &pedersen_params, z_i).unwrap();
+                let (running_instance, w) = ccs
+                    .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                    .unwrap();
                 lcccs_instances.push(running_instance);
                 w_lcccs.push(w);
             }
@@ -718,7 +761,9 @@ pub mod tests {
             let mut cccs_instances = Vec::new();
             let mut w_cccs = Vec::new();
             for z_i in z_cccs.iter() {
-                let (new_instance, w) = ccs.to_cccs(&mut rng, &pedersen_params, z_i).unwrap();
+                let (new_instance, w) = ccs
+                    .to_cccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                    .unwrap();
                 cccs_instances.push(new_instance);
                 w_cccs.push(w);
             }
@@ -748,9 +793,7 @@ pub mod tests {
             assert_eq!(folded_lcccs, folded_lcccs_v);
 
             // Check that the folded LCCCS instance is a valid instance with respect to the folded witness
-            folded_lcccs
-                .check_relation(&pedersen_params, &ccs, &folded_witness)
-                .unwrap();
+            folded_lcccs.check_relation(&ccs, &folded_witness).unwrap();
         }
     }
 }

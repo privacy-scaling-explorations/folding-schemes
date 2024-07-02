@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::frontend::FCircuit;
 
-pub mod ccs;
+pub mod arith;
 pub mod commitment;
 pub mod constants;
 pub mod folding;
@@ -70,6 +70,8 @@ pub enum Error {
     NotEnoughSteps,
     #[error("Evaluation failed")]
     EvaluationFail,
+    #[error("{0} can not be zero")]
+    CantBeZero(String),
 
     // Commitment errors
     #[error("Pedersen parameters length is not sufficient (generators.len={0} < vector.len={1} unsatisfied)")]
@@ -110,23 +112,32 @@ where
     C2::BaseField: PrimeField,
     FC: FCircuit<C1::ScalarField>,
 {
-    type PreprocessorParam: Debug;
-    type ProverParam: Debug;
-    type VerifierParam: Debug;
-    type CommittedInstanceWithWitness: Debug;
+    type PreprocessorParam: Debug + Clone;
+    type ProverParam: Debug + Clone;
+    type VerifierParam: Debug + Clone;
+    type RunningCommittedInstanceWithWitness: Debug;
+    type IncomingCommittedInstanceWithWitness: Debug;
+    // type used for the extra instances in the multi-instance folding setting
+    type MultiCommittedInstanceWithWitness: Debug;
     type CFCommittedInstanceWithWitness: Debug; // CycleFold CommittedInstance & Witness
 
     fn preprocess(
+        rng: impl RngCore,
         prep_param: &Self::PreprocessorParam,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), Error>;
 
     fn init(
-        pp: &Self::ProverParam,
+        params: (Self::ProverParam, Self::VerifierParam),
         step_circuit: FC,
         z_0: Vec<C1::ScalarField>, // initial state
     ) -> Result<Self, Error>;
 
-    fn prove_step(&mut self, external_inputs: Vec<C1::ScalarField>) -> Result<(), Error>;
+    fn prove_step(
+        &mut self,
+        rng: impl RngCore,
+        external_inputs: Vec<C1::ScalarField>,
+        other_instances: Self::MultiCommittedInstanceWithWitness,
+    ) -> Result<(), Error>;
 
     // returns the state at the current step
     fn state(&self) -> Vec<C1::ScalarField>;
@@ -136,8 +147,8 @@ where
     fn instances(
         &self,
     ) -> (
-        Self::CommittedInstanceWithWitness,
-        Self::CommittedInstanceWithWitness,
+        Self::RunningCommittedInstanceWithWitness,
+        Self::IncomingCommittedInstanceWithWitness,
         Self::CFCommittedInstanceWithWitness,
     );
 
@@ -147,8 +158,8 @@ where
         z_i: Vec<C1::ScalarField>, // last state
         // number of steps between the initial state and the last state
         num_steps: C1::ScalarField,
-        running_instance: Self::CommittedInstanceWithWitness,
-        incoming_instance: Self::CommittedInstanceWithWitness,
+        running_instance: Self::RunningCommittedInstanceWithWitness,
+        incoming_instance: Self::IncomingCommittedInstanceWithWitness,
         cyclefold_instance: Self::CFCommittedInstanceWithWitness,
     ) -> Result<(), Error>;
 }
@@ -162,6 +173,7 @@ pub trait Decider<
     C1: CurveGroup<BaseField = C2::ScalarField, ScalarField = C2::BaseField>,
     C2::BaseField: PrimeField,
 {
+    type PreprocessorParam: Debug;
     type ProverParam: Clone;
     type Proof;
     type VerifierParam;
@@ -169,9 +181,15 @@ pub trait Decider<
     type CommittedInstanceWithWitness: Debug;
     type CommittedInstance: Clone + Debug;
 
-    fn prove(
-        pp: Self::ProverParam,
+    fn preprocess(
         rng: impl RngCore + CryptoRng,
+        prep_param: &Self::PreprocessorParam,
+        fs: FS,
+    ) -> Result<(Self::ProverParam, Self::VerifierParam), Error>;
+
+    fn prove(
+        rng: impl RngCore + CryptoRng,
+        pp: Self::ProverParam,
         folding_scheme: FS,
     ) -> Result<Self::Proof, Error>;
 

@@ -4,7 +4,7 @@ use ark_std::Zero;
 use std::marker::PhantomData;
 
 use super::{CommittedInstance, Witness};
-use crate::ccs::r1cs::R1CS;
+use crate::arith::r1cs::R1CS;
 use crate::commitment::CommitmentScheme;
 use crate::transcript::Transcript;
 use crate::utils::vec::{hadamard, mat_vec_mul, vec_add, vec_scalar_mul, vec_sub};
@@ -205,7 +205,7 @@ pub mod tests {
     use ark_pallas::{Fr, Projective};
     use ark_std::{ops::Mul, UniformRand};
 
-    use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z};
+    use crate::arith::r1cs::tests::{get_test_r1cs, get_test_z};
     use crate::commitment::pedersen::{Params as PedersenParams, Pedersen};
     use crate::folding::nova::circuits::ChallengeGadget;
     use crate::folding::nova::traits::NovaR1CS;
@@ -259,8 +259,10 @@ pub mod tests {
 
         let poseidon_config = poseidon_canonical_config::<C::ScalarField>();
 
+        let pp_hash = C::ScalarField::from(42u32); // only for test
         let r_bits = ChallengeGadget::<C>::get_challenge_native(
             &poseidon_config,
+            pp_hash,
             ci1.clone(),
             ci2.clone(),
             cmT,

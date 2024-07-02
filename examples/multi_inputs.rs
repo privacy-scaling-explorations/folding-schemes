@@ -14,11 +14,10 @@ use ark_bn254::{constraints::GVar, Bn254, Fr, G1Projective as Projective};
 use ark_grumpkin::{constraints::GVar as GVar2, Projective as Projective2};
 
 use folding_schemes::commitment::{kzg::KZG, pedersen::Pedersen};
-use folding_schemes::folding::nova::Nova;
+use folding_schemes::folding::nova::{Nova, PreprocessorParam};
 use folding_schemes::frontend::FCircuit;
+use folding_schemes::transcript::poseidon::poseidon_canonical_config;
 use folding_schemes::{Error, FoldingScheme};
-mod utils;
-use utils::init_nova_ivc_params;
 
 /// This is the circuit that we want to fold, it implements the FCircuit trait. The parameter z_i
 /// denotes the current state which contains 5 elements, and z_{i+1} denotes the next state which
@@ -124,9 +123,8 @@ fn main() {
 
     let F_circuit = MultiInputsFCircuit::<Fr>::new(()).unwrap();
 
-    println!("Prepare Nova ProverParams & VerifierParams");
-    let (prover_params, verifier_params, _) =
-        init_nova_ivc_params::<MultiInputsFCircuit<Fr>>(F_circuit);
+    let poseidon_config = poseidon_canonical_config::<Fr>();
+    let mut rng = rand::rngs::OsRng;
 
     /// The idea here is that eventually we could replace the next line chunk that defines the
     /// `type NOVA = Nova<...>` by using another folding scheme that fulfills the `FoldingScheme`
@@ -141,13 +139,18 @@ fn main() {
         Pedersen<Projective2>,
     >;
 
+    println!("Prepare Nova ProverParams & VerifierParams");
+    let nova_preprocess_params = PreprocessorParam::new(poseidon_config, F_circuit);
+    let nova_params = NOVA::preprocess(&mut rng, &nova_preprocess_params).unwrap();
+
     println!("Initialize FoldingScheme");
-    let mut folding_scheme = NOVA::init(&prover_params, F_circuit, initial_state.clone()).unwrap();
+    let mut folding_scheme =
+        NOVA::init(nova_params.clone(), F_circuit, initial_state.clone()).unwrap();
 
     // compute a step of the IVC
     for i in 0..num_steps {
         let start = Instant::now();
-        folding_scheme.prove_step(vec![]).unwrap();
+        folding_scheme.prove_step(rng, vec![], ()).unwrap();
         println!("Nova::prove_step {}: {:?}", i, start.elapsed());
     }
 
@@ -155,7 +158,7 @@ fn main() {
 
     println!("Run the Nova's IVC verifier");
     NOVA::verify(
-        verifier_params,
+        nova_params.1,
         initial_state.clone(),
         folding_scheme.state(), // latest state
         Fr::from(num_steps as u32),

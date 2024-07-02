@@ -54,6 +54,13 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for IPA<C, H> {
     type ProverChallenge = (C::ScalarField, C, Vec<C::ScalarField>);
     type Challenge = (C::ScalarField, C, Vec<C::ScalarField>);
 
+    fn is_hiding() -> bool {
+        if H {
+            return true;
+        }
+        false
+    }
+
     fn setup(
         mut rng: impl RngCore,
         len: usize,
