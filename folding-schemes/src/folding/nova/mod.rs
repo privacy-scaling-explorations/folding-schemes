@@ -10,6 +10,7 @@ use ark_r1cs_std::{groups::GroupOpsBounds, prelude::CurveVar, ToConstraintFieldG
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::fmt::Debug;
+use ark_std::rand::RngCore;
 use ark_std::{One, Zero};
 use core::marker::PhantomData;
 use std::usize;
@@ -24,7 +25,7 @@ use crate::folding::circuits::{
     CF2,
 };
 use crate::frontend::FCircuit;
-use crate::utils::vec::is_zero_vec;
+use crate::utils::{get_cm_coordinates, vec::is_zero_vec};
 use crate::Error;
 use crate::FoldingScheme;
 
@@ -187,6 +188,44 @@ where
 }
 
 #[derive(Debug, Clone)]
+pub struct PreprocessorParam<C1, C2, FC, CS1, CS2>
+where
+    C1: CurveGroup,
+    C2: CurveGroup,
+    FC: FCircuit<C1::ScalarField>,
+    CS1: CommitmentScheme<C1>,
+    CS2: CommitmentScheme<C2>,
+{
+    pub poseidon_config: PoseidonConfig<C1::ScalarField>,
+    pub F: FC,
+    // cs params if not provided, will be generated at the preprocess method
+    pub cs_pp: Option<CS1::ProverParams>,
+    pub cs_vp: Option<CS1::VerifierParams>,
+    pub cf_cs_pp: Option<CS2::ProverParams>,
+    pub cf_cs_vp: Option<CS2::VerifierParams>,
+}
+
+impl<C1, C2, FC, CS1, CS2> PreprocessorParam<C1, C2, FC, CS1, CS2>
+where
+    C1: CurveGroup,
+    C2: CurveGroup,
+    FC: FCircuit<C1::ScalarField>,
+    CS1: CommitmentScheme<C1>,
+    CS2: CommitmentScheme<C2>,
+{
+    pub fn new(poseidon_config: PoseidonConfig<C1::ScalarField>, F: FC) -> Self {
+        Self {
+            poseidon_config,
+            F,
+            cs_pp: None,
+            cs_vp: None,
+            cf_cs_pp: None,
+            cf_cs_vp: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ProverParams<C1, C2, CS1, CS2>
 where
     C1: CurveGroup,
@@ -195,15 +234,23 @@ where
     CS2: CommitmentScheme<C2>,
 {
     pub poseidon_config: PoseidonConfig<C1::ScalarField>,
-    pub cs_params: CS1::ProverParams,
-    pub cf_cs_params: CS2::ProverParams,
+    pub cs_pp: CS1::ProverParams,
+    pub cf_cs_pp: CS2::ProverParams,
 }
 
 #[derive(Debug, Clone)]
-pub struct VerifierParams<C1: CurveGroup, C2: CurveGroup> {
+pub struct VerifierParams<C1, C2, CS1, CS2>
+where
+    C1: CurveGroup,
+    C2: CurveGroup,
+    CS1: CommitmentScheme<C1>,
+    CS2: CommitmentScheme<C2>,
+{
     pub poseidon_config: PoseidonConfig<C1::ScalarField>,
     pub r1cs: R1CS<C1::ScalarField>,
     pub cf_r1cs: R1CS<C2::ScalarField>,
+    pub cs_vp: CS1::VerifierParams,
+    pub cf_cs_vp: CS2::VerifierParams,
 }
 
 /// Implements Nova+CycleFold's IVC, described in [Nova](https://eprint.iacr.org/2021/370.pdf) and
@@ -228,9 +275,9 @@ where
     pub cf_r1cs: R1CS<C2::ScalarField>,
     pub poseidon_config: PoseidonConfig<C1::ScalarField>,
     /// CommitmentScheme::ProverParams over C1
-    pub cs_params: CS1::ProverParams,
+    pub cs_pp: CS1::ProverParams,
     /// CycleFold CommitmentScheme::ProverParams, over C2
-    pub cf_cs_params: CS2::ProverParams,
+    pub cf_cs_pp: CS2::ProverParams,
     /// F circuit, the circuit that is being folded
     pub F: FC,
     pub i: C1::ScalarField,
@@ -267,24 +314,50 @@ where
     for<'a> &'a GC1: GroupOpsBounds<'a, C1, GC1>,
     for<'a> &'a GC2: GroupOpsBounds<'a, C2, GC2>,
 {
-    type PreprocessorParam = (Self::ProverParam, FC);
+    type PreprocessorParam = PreprocessorParam<C1, C2, FC, CS1, CS2>;
     type ProverParam = ProverParams<C1, C2, CS1, CS2>;
-    type VerifierParam = VerifierParams<C1, C2>;
-    type CommittedInstanceWithWitness = (CommittedInstance<C1>, Witness<C1>);
-    type CFCommittedInstanceWithWitness = (CommittedInstance<C2>, Witness<C2>);
+    type VerifierParam = VerifierParams<C1, C2, CS1, CS2>;
+    type RunningInstance = (CommittedInstance<C1>, Witness<C1>);
+    type IncomingInstance = (CommittedInstance<C1>, Witness<C1>);
+    type CFInstance = (CommittedInstance<C2>, Witness<C2>);
 
     fn preprocess(
+        mut rng: impl RngCore,
         prep_param: &Self::PreprocessorParam,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), Error> {
-        let (prover_params, F_circuit) = prep_param;
-
         let (r1cs, cf_r1cs) =
-            get_r1cs::<C1, GC1, C2, GC2, FC>(&prover_params.poseidon_config, F_circuit.clone())?;
+            get_r1cs::<C1, GC1, C2, GC2, FC>(&prep_param.poseidon_config, prep_param.F.clone())?;
 
-        let verifier_params = VerifierParams::<C1, C2> {
-            poseidon_config: prover_params.poseidon_config.clone(),
+        // if cs params exist, use them, if not, generate new ones
+        let cs_pp: CS1::ProverParams;
+        let cs_vp: CS1::VerifierParams;
+        let cf_cs_pp: CS2::ProverParams;
+        let cf_cs_vp: CS2::VerifierParams;
+        if prep_param.cs_pp.is_some()
+            && prep_param.cf_cs_pp.is_some()
+            && prep_param.cs_vp.is_some()
+            && prep_param.cf_cs_vp.is_some()
+        {
+            cs_pp = prep_param.clone().cs_pp.unwrap();
+            cs_vp = prep_param.clone().cs_vp.unwrap();
+            cf_cs_pp = prep_param.clone().cf_cs_pp.unwrap();
+            cf_cs_vp = prep_param.clone().cf_cs_vp.unwrap();
+        } else {
+            (cs_pp, cs_vp) = CS1::setup(&mut rng, r1cs.A.n_rows).unwrap();
+            (cf_cs_pp, cf_cs_vp) = CS2::setup(&mut rng, cf_r1cs.A.n_rows).unwrap();
+        }
+
+        let prover_params = ProverParams::<C1, C2, CS1, CS2> {
+            poseidon_config: prep_param.poseidon_config.clone(),
+            cs_pp: cs_pp.clone(),
+            cf_cs_pp: cf_cs_pp.clone(),
+        };
+        let verifier_params = VerifierParams::<C1, C2, CS1, CS2> {
+            poseidon_config: prep_param.poseidon_config.clone(),
             r1cs,
             cf_r1cs,
+            cs_vp: cs_vp.clone(),
+            cf_cs_vp: cf_cs_vp.clone(),
         };
         Ok((prover_params.clone(), verifier_params))
     }
@@ -322,8 +395,8 @@ where
             r1cs,
             cf_r1cs,
             poseidon_config: pp.poseidon_config.clone(),
-            cs_params: pp.cs_params.clone(),
-            cf_cs_params: pp.cf_cs_params.clone(),
+            cs_pp: pp.cs_pp.clone(),
+            cf_cs_pp: pp.cf_cs_pp.clone(),
             F,
             i: C1::ScalarField::zero(),
             z_0: z_0.clone(),
@@ -339,7 +412,11 @@ where
     }
 
     /// Implements IVC.P of Nova+CycleFold
-    fn prove_step(&mut self, external_inputs: Vec<C1::ScalarField>) -> Result<(), Error> {
+    fn prove_step(
+        &mut self,
+        _rng: impl RngCore,
+        external_inputs: Vec<C1::ScalarField>,
+    ) -> Result<(), Error> {
         let augmented_F_circuit: AugmentedFCircuit<C1, C2, GC2, FC>;
 
         if self.z_i.len() != self.F.state_len() {
@@ -535,7 +612,7 @@ where
         self.i += C1::ScalarField::one();
         self.z_i = z_i1;
         self.w_i = Witness::<C1>::new(w_i1, self.r1cs.A.n_rows);
-        self.u_i = self.w_i.commit::<CS1>(&self.cs_params, x_i1)?;
+        self.u_i = self.w_i.commit::<CS1>(&self.cs_pp, x_i1)?;
         self.W_i = W_i1;
         self.U_i = U_i1;
 
@@ -552,12 +629,13 @@ where
     fn state(&self) -> Vec<C1::ScalarField> {
         self.z_i.clone()
     }
+
     fn instances(
         &self,
     ) -> (
-        Self::CommittedInstanceWithWitness,
-        Self::CommittedInstanceWithWitness,
-        Self::CFCommittedInstanceWithWitness,
+        Self::RunningInstance,
+        Self::IncomingInstance,
+        Self::CFInstance,
     ) {
         (
             (self.U_i.clone(), self.W_i.clone()),
@@ -566,15 +644,16 @@ where
         )
     }
 
-    /// Implements IVC.V of Nova+CycleFold
+    /// Implements IVC.V of Nova+CycleFold. Notice that this method does not include the
+    /// commitments verification, which is done in the Decider.
     fn verify(
         vp: Self::VerifierParam,
         z_0: Vec<C1::ScalarField>, // initial state
         z_i: Vec<C1::ScalarField>, // last state
         num_steps: C1::ScalarField,
-        running_instance: Self::CommittedInstanceWithWitness,
-        incoming_instance: Self::CommittedInstanceWithWitness,
-        cyclefold_instance: Self::CFCommittedInstanceWithWitness,
+        running_instance: Self::RunningInstance,
+        incoming_instance: Self::IncomingInstance,
+        cyclefold_instance: Self::CFInstance,
     ) -> Result<(), Error> {
         let (U_i, W_i) = running_instance;
         let (u_i, w_i) = incoming_instance;
@@ -631,7 +710,7 @@ where
     // computes T and cmT for the AugmentedFCircuit
     fn compute_cmT(&self) -> Result<(Vec<C1::ScalarField>, C1), Error> {
         NIFS::<C1, CS1>::compute_cmT(
-            &self.cs_params,
+            &self.cs_pp,
             &self.r1cs,
             &self.w_i,
             &self.u_i,
@@ -680,7 +759,7 @@ where
         fold_cyclefold_circuit::<C1, GC1, C2, GC2, FC, CS1, CS2>(
             &self.poseidon_config,
             self.cf_r1cs.clone(),
-            self.cf_cs_params.clone(),
+            self.cf_cs_pp.clone(),
             cf_W_i,
             cf_U_i,
             cf_u_i_x,
@@ -753,23 +832,13 @@ where
     Ok((r1cs.A.n_rows, cf_r1cs.A.n_rows))
 }
 
-/// returns the coordinates of a commitment point. This is compatible with the arkworks
-/// GC.to_constraint_field()[..2]
-pub(crate) fn get_cm_coordinates<C: CurveGroup>(cm: &C) -> Vec<C::BaseField> {
-    let zero = (&C::BaseField::zero(), &C::BaseField::zero());
-    let cm = cm.into_affine();
-    let (cm_x, cm_y) = cm.xy().unwrap_or(zero);
-    vec![*cm_x, *cm_y]
-}
-
 #[cfg(test)]
 pub mod tests {
-    use super::*;
-    use crate::commitment::kzg::{ProverKey as KZGProverKey, KZG};
+    use crate::commitment::kzg::KZG;
     use ark_bn254::{constraints::GVar, Bn254, Fr, G1Projective as Projective};
     use ark_grumpkin::{constraints::GVar as GVar2, Projective as Projective2};
-    use ark_poly_commit::kzg10::VerifierKey as KZGVerifierKey;
 
+    use super::*;
     use crate::commitment::pedersen::Pedersen;
     use crate::frontend::tests::CubicFCircuit;
     use crate::transcript::poseidon::poseidon_canonical_config;
@@ -778,71 +847,49 @@ pub mod tests {
     /// AugmentedFCircuit
     #[test]
     fn test_ivc() {
-        let mut rng = ark_std::test_rng();
         let poseidon_config = poseidon_canonical_config::<Fr>();
 
         let F_circuit = CubicFCircuit::<Fr>::new(()).unwrap();
 
-        let (cs_len, cf_cs_len) =
-            get_cs_params_len::<Projective, GVar, Projective2, GVar2, CubicFCircuit<Fr>>(
-                &poseidon_config,
-                F_circuit,
-            )
-            .unwrap();
-        let (kzg_pk, _): (KZGProverKey<Projective>, KZGVerifierKey<Bn254>) =
-            KZG::<Bn254>::setup(&mut rng, cs_len).unwrap();
-        let (pedersen_params, _) = Pedersen::<Projective>::setup(&mut rng, cs_len).unwrap();
-        let (cf_pedersen_params, _) = Pedersen::<Projective2>::setup(&mut rng, cf_cs_len).unwrap();
-
         // run the test using Pedersen commitments on both sides of the curve cycle
         test_ivc_opt::<Pedersen<Projective>, Pedersen<Projective2>>(
             poseidon_config.clone(),
-            pedersen_params,
-            cf_pedersen_params.clone(),
             F_circuit,
         );
         // run the test using KZG for the commitments on the main curve, and Pedersen for the
         // commitments on the secondary curve
-        test_ivc_opt::<KZG<Bn254>, Pedersen<Projective2>>(
-            poseidon_config,
-            kzg_pk,
-            cf_pedersen_params,
-            F_circuit,
-        );
+        test_ivc_opt::<KZG<Bn254>, Pedersen<Projective2>>(poseidon_config, F_circuit);
     }
 
     // test_ivc allowing to choose the CommitmentSchemes
     fn test_ivc_opt<CS1: CommitmentScheme<Projective>, CS2: CommitmentScheme<Projective2>>(
         poseidon_config: PoseidonConfig<Fr>,
-        cs_params: CS1::ProverParams,
-        cf_cs_params: CS2::ProverParams,
         F_circuit: CubicFCircuit<Fr>,
     ) {
-        type NOVA<CS1, CS2> =
-            Nova<Projective, GVar, Projective2, GVar2, CubicFCircuit<Fr>, CS1, CS2>;
+        let mut rng = ark_std::test_rng();
+        type N<CS1, CS2> = Nova<Projective, GVar, Projective2, GVar2, CubicFCircuit<Fr>, CS1, CS2>;
 
-        let prover_params = ProverParams::<Projective, Projective2, CS1, CS2> {
-            poseidon_config: poseidon_config.clone(),
-            cs_params,
-            cf_cs_params,
+        let prep_param = PreprocessorParam::<Projective, Projective2, CubicFCircuit<Fr>, CS1, CS2> {
+            poseidon_config,
+            F: F_circuit,
+            cs_pp: None,
+            cs_vp: None,
+            cf_cs_pp: None,
+            cf_cs_vp: None,
         };
+        let (prover_params, verifier_params) = N::preprocess(&mut rng, &prep_param).unwrap();
 
         let z_0 = vec![Fr::from(3_u32)];
-        let mut nova = NOVA::init(&prover_params, F_circuit, z_0.clone()).unwrap();
+        let mut nova = N::init(&prover_params, F_circuit, z_0.clone()).unwrap();
 
         let num_steps: usize = 3;
         for _ in 0..num_steps {
-            nova.prove_step(vec![]).unwrap();
+            nova.prove_step(&mut rng, vec![]).unwrap();
         }
         assert_eq!(Fr::from(num_steps as u32), nova.i);
 
-        let verifier_params = VerifierParams::<Projective, Projective2> {
-            poseidon_config,
-            r1cs: nova.clone().r1cs,
-            cf_r1cs: nova.clone().cf_r1cs,
-        };
         let (running_instance, incoming_instance, cyclefold_instance) = nova.instances();
-        NOVA::<CS1, CS2>::verify(
+        N::<CS1, CS2>::verify(
             verifier_params,
             z_0,
             nova.z_i,

@@ -596,7 +596,7 @@ where
 
     /// Returns the cs (ConstraintSystem) and the CCS out of the AugmentedFCircuit
     #[allow(clippy::type_complexity)]
-    fn compute_cs_ccs(
+    pub fn compute_cs_ccs(
         &self,
     ) -> Result<(ConstraintSystem<C1::ScalarField>, CCS<C1::ScalarField>), Error> {
         let cs = ConstraintSystem::<C1::ScalarField>::new_ref();
@@ -817,15 +817,14 @@ mod tests {
                 utils::{compute_c, compute_sigmas_thetas},
                 Witness,
             },
-            nova::{
-                get_cm_coordinates, traits::NovaR1CS, CommittedInstance, Witness as NovaWitness,
-            },
+            nova::{traits::NovaR1CS, CommittedInstance, Witness as NovaWitness},
         },
         frontend::tests::CubicFCircuit,
         transcript::{
             poseidon::{poseidon_canonical_config, PoseidonTranscript, PoseidonTranscriptVar},
             Transcript,
         },
+        utils::get_cm_coordinates,
     };
 
     #[test]
@@ -858,13 +857,17 @@ mod tests {
         // Create the LCCCS instances out of z_lcccs
         let mut lcccs_instances = Vec::new();
         for z_i in z_lcccs.iter() {
-            let (inst, _) = ccs.to_lcccs(&mut rng, &pedersen_params, z_i).unwrap();
+            let (inst, _) = ccs
+                .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                .unwrap();
             lcccs_instances.push(inst);
         }
         // Create the CCCS instance out of z_cccs
         let mut cccs_instances = Vec::new();
         for z_i in z_cccs.iter() {
-            let (inst, _) = ccs.to_cccs(&mut rng, &pedersen_params, z_i).unwrap();
+            let (inst, _) = ccs
+                .to_cccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                .unwrap();
             cccs_instances.push(inst);
         }
 
@@ -950,7 +953,9 @@ mod tests {
         let mut lcccs_instances = Vec::new();
         let mut w_lcccs = Vec::new();
         for z_i in z_lcccs.iter() {
-            let (running_instance, w) = ccs.to_lcccs(&mut rng, &pedersen_params, z_i).unwrap();
+            let (running_instance, w) = ccs
+                .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                .unwrap();
             lcccs_instances.push(running_instance);
             w_lcccs.push(w);
         }
@@ -958,7 +963,9 @@ mod tests {
         let mut cccs_instances = Vec::new();
         let mut w_cccs = Vec::new();
         for z_i in z_cccs.iter() {
-            let (new_instance, w) = ccs.to_cccs(&mut rng, &pedersen_params, z_i).unwrap();
+            let (new_instance, w) = ccs
+                .to_cccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                .unwrap();
             cccs_instances.push(new_instance);
             w_cccs.push(w);
         }
@@ -996,9 +1003,7 @@ mod tests {
         assert_eq!(folded_lcccs, folded_lcccs_v);
 
         // Check that the folded LCCCS instance is a valid instance with respect to the folded witness
-        folded_lcccs
-            .check_relation(&pedersen_params, &ccs, &folded_witness)
-            .unwrap();
+        folded_lcccs.check_relation(&ccs, &folded_witness).unwrap();
 
         // allocate circuit inputs
         let cs = ConstraintSystem::<Fr>::new_ref();
@@ -1042,7 +1047,9 @@ mod tests {
         let i = Fr::from(3_u32);
         let z_0 = vec![Fr::from(3_u32)];
         let z_i = vec![Fr::from(3_u32)];
-        let (lcccs, _) = ccs.to_lcccs(&mut rng, &pedersen_params, &z1).unwrap();
+        let (lcccs, _) = ccs
+            .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z1)
+            .unwrap();
         let h = lcccs
             .clone()
             .hash(&poseidon_config, i, z_0.clone(), z_i.clone())
@@ -1104,11 +1111,11 @@ mod tests {
         let mut z_i = z_0.clone();
 
         // prepare the dummy instances
-        let W_dummy = Witness::<Fr>::new(vec![Fr::zero(); ccs.n - ccs.l - 1]);
+        let W_dummy = Witness::<Fr>::dummy(&ccs);
         let U_dummy = LCCCS::<Projective>::dummy(ccs.l, ccs.t, ccs.s);
         let w_dummy = W_dummy.clone();
         let u_dummy = CCCS::<Projective>::dummy(ccs.l);
-        let (cf_w_dummy, cf_u_dummy): (NovaWitness<Projective2>, CommittedInstance<Projective2>) =
+        let (cf_W_dummy, cf_U_dummy): (NovaWitness<Projective2>, CommittedInstance<Projective2>) =
             cf_r1cs.dummy_instance();
 
         // set the initial dummy instances
@@ -1116,8 +1123,8 @@ mod tests {
         let mut U_i = U_dummy.clone();
         let mut w_i = w_dummy.clone();
         let mut u_i = u_dummy.clone();
-        let mut cf_W_i = cf_w_dummy.clone();
-        let mut cf_U_i = cf_u_dummy.clone();
+        let mut cf_W_i = cf_W_dummy.clone();
+        let mut cf_U_i = cf_U_dummy.clone();
         u_i.x = vec![
             U_i.hash(&poseidon_config, Fr::zero(), z_0.clone(), z_i.clone())
                 .unwrap(),
@@ -1142,7 +1149,7 @@ mod tests {
                 .unwrap();
 
             // sanity check: check the folded instance relation
-            U_i1.check_relation(&pedersen_params, &ccs, &W_i1).unwrap();
+            U_i1.check_relation(&ccs, &W_i1).unwrap();
 
             let z_i1 = F_circuit.step_native(i, z_i.clone(), vec![]).unwrap();
             let u_i1_x = U_i1
@@ -1160,8 +1167,8 @@ mod tests {
                         _gc2: PhantomData,
                         poseidon_config: poseidon_config.clone(),
                         ccs: ccs.clone(),
-                        i: Some(iFr),
-                        i_usize: Some(i),
+                        i: Some(Fr::zero()),
+                        i_usize: Some(0),
                         z_0: Some(z_0.clone()),
                         z_i: Some(z_i.clone()),
                         external_inputs: Some(vec![]),
@@ -1260,8 +1267,10 @@ mod tests {
             let r1cs_z = [vec![Fr::one()], r1cs_x_i1.clone(), r1cs_w_i1.clone()].concat();
             // compute committed instances, w_{i+1}, u_{i+1}, which will be used as w_i, u_i, so we
             // assign them directly to w_i, u_i.
-            (u_i, w_i) = ccs.to_cccs(&mut rng, &pedersen_params, &r1cs_z).unwrap();
-            u_i.check_relation(&pedersen_params, &ccs, &w_i).unwrap();
+            (u_i, w_i) = ccs
+                .to_cccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &r1cs_z)
+                .unwrap();
+            u_i.check_relation(&ccs, &w_i).unwrap();
 
             // sanity checks
             assert_eq!(w_i.w, r1cs_w_i1);
@@ -1284,9 +1293,9 @@ mod tests {
             W_i = W_i1.clone();
 
             // check the new LCCCS instance relation
-            U_i.check_relation(&pedersen_params, &ccs, &W_i).unwrap();
+            U_i.check_relation(&ccs, &W_i).unwrap();
             // check the new CCCS instance relation
-            u_i.check_relation(&pedersen_params, &ccs, &w_i).unwrap();
+            u_i.check_relation(&ccs, &w_i).unwrap();
 
             // check the CycleFold instance relation
             cf_r1cs

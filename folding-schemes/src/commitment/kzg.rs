@@ -93,6 +93,13 @@ where
     type ProverChallenge = E::ScalarField;
     type Challenge = E::ScalarField;
 
+    fn is_hiding() -> bool {
+        if H {
+            return true;
+        }
+        false
+    }
+
     /// setup returns the tuple (ProverKey, VerifierKey). For real world deployments the setup must
     /// be computed in the most trustless way possible, usually through a MPC ceremony.
     fn setup(

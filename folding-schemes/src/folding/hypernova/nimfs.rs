@@ -432,11 +432,15 @@ pub mod tests {
         let (pedersen_params, _) =
             Pedersen::<Projective>::setup(&mut rng, ccs.n - ccs.l - 1).unwrap();
 
-        let (lcccs, w1) = ccs.to_lcccs(&mut rng, &pedersen_params, &z1).unwrap();
-        let (cccs, w2) = ccs.to_cccs(&mut rng, &pedersen_params, &z2).unwrap();
+        let (lcccs, w1) = ccs
+            .to_lcccs::<_, Projective, Pedersen<Projective>>(&mut rng, &pedersen_params, &z1)
+            .unwrap();
+        let (cccs, w2) = ccs
+            .to_cccs::<_, Projective, Pedersen<Projective>>(&mut rng, &pedersen_params, &z2)
+            .unwrap();
 
-        lcccs.check_relation(&pedersen_params, &ccs, &w1).unwrap();
-        cccs.check_relation(&pedersen_params, &ccs, &w2).unwrap();
+        lcccs.check_relation(&ccs, &w1).unwrap();
+        cccs.check_relation(&ccs, &w2).unwrap();
 
         let mut rng = test_rng();
         let rho = Fr::rand(&mut rng);
@@ -453,9 +457,7 @@ pub mod tests {
             NIMFS::<Projective, PoseidonTranscript<Projective>>::fold_witness(&[w1], &[w2], rho);
 
         // check lcccs relation
-        folded
-            .check_relation(&pedersen_params, &ccs, &w_folded)
-            .unwrap();
+        folded.check_relation(&ccs, &w_folded).unwrap();
     }
 
     /// Perform multifolding of an LCCCS instance with a CCCS instance (as described in the paper)
@@ -474,9 +476,13 @@ pub mod tests {
         let z_2 = get_test_z(4);
 
         // Create the LCCCS instance out of z_1
-        let (running_instance, w1) = ccs.to_lcccs(&mut rng, &pedersen_params, &z_1).unwrap();
+        let (running_instance, w1) = ccs
+            .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z_1)
+            .unwrap();
         // Create the CCCS instance out of z_2
-        let (new_instance, w2) = ccs.to_cccs(&mut rng, &pedersen_params, &z_2).unwrap();
+        let (new_instance, w2) = ccs
+            .to_cccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z_2)
+            .unwrap();
 
         // Prover's transcript
         let poseidon_config = poseidon_canonical_config::<Fr>();
@@ -513,9 +519,7 @@ pub mod tests {
         assert_eq!(folded_lcccs, folded_lcccs_v);
 
         // Check that the folded LCCCS instance is a valid instance with respect to the folded witness
-        folded_lcccs
-            .check_relation(&pedersen_params, &ccs, &folded_witness)
-            .unwrap();
+        folded_lcccs.check_relation(&ccs, &folded_witness).unwrap();
     }
 
     /// Perform multiple steps of multifolding of an LCCCS instance with a CCCS instance
@@ -530,8 +534,9 @@ pub mod tests {
 
         // LCCCS witness
         let z_1 = get_test_z(2);
-        let (mut running_instance, mut w1) =
-            ccs.to_lcccs(&mut rng, &pedersen_params, &z_1).unwrap();
+        let (mut running_instance, mut w1) = ccs
+            .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z_1)
+            .unwrap();
 
         let poseidon_config = poseidon_canonical_config::<Fr>();
 
@@ -548,7 +553,9 @@ pub mod tests {
             // CCS witness
             let z_2 = get_test_z(i);
 
-            let (new_instance, w2) = ccs.to_cccs(&mut rng, &pedersen_params, &z_2).unwrap();
+            let (new_instance, w2) = ccs
+                .to_cccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z_2)
+                .unwrap();
 
             // run the prover side of the multifolding
             let (proof, folded_lcccs, folded_witness, _) =
@@ -574,9 +581,7 @@ pub mod tests {
             assert_eq!(folded_lcccs, folded_lcccs_v);
 
             // check that the folded instance with the folded witness holds the LCCCS relation
-            folded_lcccs
-                .check_relation(&pedersen_params, &ccs, &folded_witness)
-                .unwrap();
+            folded_lcccs.check_relation(&ccs, &folded_witness).unwrap();
 
             running_instance = folded_lcccs;
             w1 = folded_witness;
@@ -612,7 +617,9 @@ pub mod tests {
         let mut lcccs_instances = Vec::new();
         let mut w_lcccs = Vec::new();
         for z_i in z_lcccs.iter() {
-            let (running_instance, w) = ccs.to_lcccs(&mut rng, &pedersen_params, z_i).unwrap();
+            let (running_instance, w) = ccs
+                .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                .unwrap();
             lcccs_instances.push(running_instance);
             w_lcccs.push(w);
         }
@@ -620,7 +627,9 @@ pub mod tests {
         let mut cccs_instances = Vec::new();
         let mut w_cccs = Vec::new();
         for z_i in z_cccs.iter() {
-            let (new_instance, w) = ccs.to_cccs(&mut rng, &pedersen_params, z_i).unwrap();
+            let (new_instance, w) = ccs
+                .to_cccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                .unwrap();
             cccs_instances.push(new_instance);
             w_cccs.push(w);
         }
@@ -660,9 +669,7 @@ pub mod tests {
         assert_eq!(folded_lcccs, folded_lcccs_v);
 
         // Check that the folded LCCCS instance is a valid instance with respect to the folded witness
-        folded_lcccs
-            .check_relation(&pedersen_params, &ccs, &folded_witness)
-            .unwrap();
+        folded_lcccs.check_relation(&ccs, &folded_witness).unwrap();
     }
 
     /// Test that generates mu>1 and nu>1 instances, and folds them in a single multifolding step
@@ -710,7 +717,9 @@ pub mod tests {
             let mut lcccs_instances = Vec::new();
             let mut w_lcccs = Vec::new();
             for z_i in z_lcccs.iter() {
-                let (running_instance, w) = ccs.to_lcccs(&mut rng, &pedersen_params, z_i).unwrap();
+                let (running_instance, w) = ccs
+                    .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                    .unwrap();
                 lcccs_instances.push(running_instance);
                 w_lcccs.push(w);
             }
@@ -718,7 +727,9 @@ pub mod tests {
             let mut cccs_instances = Vec::new();
             let mut w_cccs = Vec::new();
             for z_i in z_cccs.iter() {
-                let (new_instance, w) = ccs.to_cccs(&mut rng, &pedersen_params, z_i).unwrap();
+                let (new_instance, w) = ccs
+                    .to_cccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, z_i)
+                    .unwrap();
                 cccs_instances.push(new_instance);
                 w_cccs.push(w);
             }
@@ -748,9 +759,7 @@ pub mod tests {
             assert_eq!(folded_lcccs, folded_lcccs_v);
 
             // Check that the folded LCCCS instance is a valid instance with respect to the folded witness
-            folded_lcccs
-                .check_relation(&pedersen_params, &ccs, &folded_witness)
-                .unwrap();
+            folded_lcccs.check_relation(&ccs, &folded_witness).unwrap();
         }
     }
 }

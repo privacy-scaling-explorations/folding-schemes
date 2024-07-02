@@ -1,10 +1,3 @@
-use super::{circuits::AugmentedFCircuit, Nova, ProverParams};
-pub use super::{CommittedInstance, Witness};
-pub use crate::folding::circuits::{cyclefold::CycleFoldCircuit, CF2};
-use crate::{
-    ccs::r1cs::extract_r1cs, commitment::CommitmentScheme, folding::circuits::CF1,
-    frontend::FCircuit,
-};
 use ark_crypto_primitives::sponge::{poseidon::PoseidonConfig, Absorb};
 use ark_ec::{CurveGroup, Group};
 use ark_ff::PrimeField;
@@ -16,6 +9,14 @@ use ark_relations::r1cs::ConstraintSynthesizer;
 use ark_relations::r1cs::ConstraintSystem;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, SerializationError, Write};
 use std::marker::PhantomData;
+
+use super::{circuits::AugmentedFCircuit, Nova, ProverParams};
+use super::{CommittedInstance, Witness};
+use crate::folding::circuits::{cyclefold::CycleFoldCircuit, CF2};
+use crate::{
+    ccs::r1cs::extract_r1cs, commitment::CommitmentScheme, folding::circuits::CF1,
+    frontend::FCircuit,
+};
 
 impl<C1, GC1, C2, GC2, FC, CS1, CS2> CanonicalSerialize for Nova<C1, GC1, C2, GC2, FC, CS1, CS2>
 where
@@ -150,8 +151,8 @@ where
             _gc1: PhantomData,
             _c2: PhantomData,
             _gc2: PhantomData,
-            cs_params: prover_params.cs_params,
-            cf_cs_params: prover_params.cf_cs_params,
+            cs_pp: prover_params.cs_pp,
+            cf_cs_pp: prover_params.cf_cs_pp,
             i,
             z_0,
             z_i,
@@ -171,6 +172,12 @@ where
 
 #[cfg(test)]
 pub mod tests {
+    use ark_bn254::{constraints::GVar, Bn254, Fr, G1Projective as Projective};
+    use ark_grumpkin::{constraints::GVar as GVar2, Projective as Projective2};
+    use ark_poly_commit::kzg10::VerifierKey as KZGVerifierKey;
+    use ark_serialize::{CanonicalSerialize, Compress, Validate};
+    use std::{fs, io::Write};
+
     use crate::{
         commitment::{
             kzg::{ProverKey as KZGProverKey, KZG},
@@ -182,11 +189,6 @@ pub mod tests {
         transcript::poseidon::poseidon_canonical_config,
         FoldingScheme,
     };
-    use ark_bn254::{constraints::GVar, Bn254, Fr, G1Projective as Projective};
-    use ark_grumpkin::{constraints::GVar as GVar2, Projective as Projective2};
-    use ark_poly_commit::kzg10::VerifierKey as KZGVerifierKey;
-    use ark_serialize::{CanonicalSerialize, Compress, Validate};
-    use std::{fs, io::Write};
 
     #[test]
     fn test_serde_nova() {
@@ -204,21 +206,28 @@ pub mod tests {
         let (cf_pedersen_params, _) = Pedersen::<Projective2>::setup(&mut rng, cf_cs_len).unwrap();
 
         // Initialize nova and make multiple `prove_step()`
-        type NOVA<CS1, CS2> =
-            Nova<Projective, GVar, Projective2, GVar2, CubicFCircuit<Fr>, CS1, CS2>;
+        type N = Nova<
+            Projective,
+            GVar,
+            Projective2,
+            GVar2,
+            CubicFCircuit<Fr>,
+            KZG<'static, Bn254>,
+            Pedersen<Projective2>,
+        >;
         let prover_params =
             ProverParams::<Projective, Projective2, KZG<Bn254>, Pedersen<Projective2>> {
                 poseidon_config: poseidon_config.clone(),
-                cs_params: kzg_pk.clone(),
-                cf_cs_params: cf_pedersen_params.clone(),
+                cs_pp: kzg_pk.clone(),
+                cf_cs_pp: cf_pedersen_params.clone(),
             };
 
         let z_0 = vec![Fr::from(3_u32)];
-        let mut nova = NOVA::init(&prover_params, F_circuit, z_0.clone()).unwrap();
+        let mut nova = N::init(&prover_params, F_circuit, z_0.clone()).unwrap();
 
         let num_steps: usize = 3;
         for _ in 0..num_steps {
-            nova.prove_step(vec![]).unwrap();
+            nova.prove_step(&mut rng, vec![]).unwrap();
         }
 
         let mut writer = vec![];
@@ -257,8 +266,8 @@ pub mod tests {
 
         let num_steps: usize = 3;
         for _ in 0..num_steps {
-            deserialized_nova.prove_step(vec![]).unwrap();
-            nova.prove_step(vec![]).unwrap();
+            deserialized_nova.prove_step(&mut rng, vec![]).unwrap();
+            nova.prove_step(&mut rng, vec![]).unwrap();
         }
 
         assert_eq!(deserialized_nova.w_i, nova.w_i);

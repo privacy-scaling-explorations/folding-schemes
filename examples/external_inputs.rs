@@ -21,12 +21,10 @@ use core::marker::PhantomData;
 use std::time::Instant;
 
 use folding_schemes::commitment::{kzg::KZG, pedersen::Pedersen};
-use folding_schemes::folding::nova::Nova;
+use folding_schemes::folding::nova::{Nova, PreprocessorParam};
 use folding_schemes::frontend::FCircuit;
-use folding_schemes::{Error, FoldingScheme};
-mod utils;
 use folding_schemes::transcript::poseidon::poseidon_canonical_config;
-use utils::init_nova_ivc_params;
+use folding_schemes::{Error, FoldingScheme};
 
 /// This is the circuit that we want to fold, it implements the FCircuit trait. The parameter z_i
 /// denotes the current state which contains 1 element, and z_{i+1} denotes the next state which we
@@ -65,14 +63,14 @@ use utils::init_nova_ivc_params;
 /// The last state z_i is used together with the external input w_i as inputs to compute the new
 /// state z_{i+1}.
 #[derive(Clone, Debug)]
-pub struct ExternalInputsCircuits<F: PrimeField>
+pub struct ExternalInputsCircuit<F: PrimeField>
 where
     F: Absorb,
 {
     _f: PhantomData<F>,
     poseidon_config: PoseidonConfig<F>,
 }
-impl<F: PrimeField> FCircuit<F> for ExternalInputsCircuits<F>
+impl<F: PrimeField> FCircuit<F> for ExternalInputsCircuit<F>
 where
     F: Absorb,
 {
@@ -128,14 +126,14 @@ pub mod tests {
     use ark_r1cs_std::R1CSVar;
     use ark_relations::r1cs::ConstraintSystem;
 
-    // test to check that the ExternalInputsCircuits computes the same values inside and outside the circuit
+    // test to check that the ExternalInputsCircuit computes the same values inside and outside the circuit
     #[test]
     fn test_f_circuit() {
         let poseidon_config = poseidon_canonical_config::<Fr>();
 
         let cs = ConstraintSystem::<Fr>::new_ref();
 
-        let circuit = ExternalInputsCircuits::<Fr>::new(poseidon_config).unwrap();
+        let circuit = ExternalInputsCircuit::<Fr>::new(poseidon_config).unwrap();
         let z_i = vec![Fr::from(1_u32)];
         let external_inputs = vec![Fr::from(3_u32)];
 
@@ -170,33 +168,35 @@ fn main() {
     assert_eq!(external_inputs.len(), num_steps);
 
     let poseidon_config = poseidon_canonical_config::<Fr>();
-    let F_circuit = ExternalInputsCircuits::<Fr>::new(poseidon_config).unwrap();
-
-    println!("Prepare Nova ProverParams & VerifierParams");
-    let (prover_params, verifier_params, _) =
-        init_nova_ivc_params::<ExternalInputsCircuits<Fr>>(F_circuit.clone());
+    let F_circuit = ExternalInputsCircuit::<Fr>::new(poseidon_config.clone()).unwrap();
 
     /// The idea here is that eventually we could replace the next line chunk that defines the
-    /// `type NOVA = Nova<...>` by using another folding scheme that fulfills the `FoldingScheme`
+    /// `type N = Nova<...>` by using another folding scheme that fulfills the `FoldingScheme`
     /// trait, and the rest of our code would be working without needing to be updated.
-    type NOVA = Nova<
+    type N = Nova<
         Projective,
         GVar,
         Projective2,
         GVar2,
-        ExternalInputsCircuits<Fr>,
+        ExternalInputsCircuit<Fr>,
         KZG<'static, Bn254>,
         Pedersen<Projective2>,
     >;
 
+    let mut rng = rand::rngs::OsRng;
+
+    println!("Prepare Nova's ProverParams & VerifierParams");
+    let nova_preprocess_params = PreprocessorParam::new(poseidon_config, F_circuit.clone());
+    let (nova_pp, nova_vp) = N::preprocess(&mut rng, &nova_preprocess_params).unwrap();
+
     println!("Initialize FoldingScheme");
-    let mut folding_scheme = NOVA::init(&prover_params, F_circuit, initial_state.clone()).unwrap();
+    let mut folding_scheme = N::init(&nova_pp, F_circuit, initial_state.clone()).unwrap();
 
     // compute a step of the IVC
     for (i, external_inputs_at_step) in external_inputs.iter().enumerate() {
         let start = Instant::now();
         folding_scheme
-            .prove_step(external_inputs_at_step.clone())
+            .prove_step(rng, external_inputs_at_step.clone())
             .unwrap();
         println!("Nova::prove_step {}: {:?}", i, start.elapsed());
     }
@@ -209,8 +209,8 @@ fn main() {
     let (running_instance, incoming_instance, cyclefold_instance) = folding_scheme.instances();
 
     println!("Run the Nova's IVC verifier");
-    NOVA::verify(
-        verifier_params,
+    N::verify(
+        nova_vp,
         initial_state.clone(),
         folding_scheme.state(), // latest state
         Fr::from(num_steps as u32),

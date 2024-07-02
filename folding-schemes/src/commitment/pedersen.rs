@@ -38,6 +38,13 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for Pedersen<C, H> {
     type ProverChallenge = (C::ScalarField, Vec<C::ScalarField>, C, C::ScalarField);
     type Challenge = C::ScalarField;
 
+    fn is_hiding() -> bool {
+        if H {
+            return true;
+        }
+        false
+    }
+
     fn setup(
         mut rng: impl RngCore,
         len: usize,

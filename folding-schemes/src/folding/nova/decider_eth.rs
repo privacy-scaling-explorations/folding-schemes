@@ -62,12 +62,13 @@ where
     GC1: CurveVar<C1, CF2<C1>> + ToConstraintFieldGadget<CF2<C1>>,
     GC2: CurveVar<C2, CF2<C2>> + ToConstraintFieldGadget<CF2<C2>>,
     FC: FCircuit<C1::ScalarField>,
+    // CS1 is a KZG commitment, where challenge is C1::Fr elem
     CS1: CommitmentScheme<
         C1,
         ProverChallenge = C1::ScalarField,
         Challenge = C1::ScalarField,
         Proof = KZGProof<C1>,
-    >, // KZG commitment, where challenge is C1::Fr elem
+    >,
     // enforce that the CS2 is Pedersen commitment scheme, since we're at Ethereum's EVM decider
     CS2: CommitmentScheme<C2, ProverParams = PedersenParams<C2>>,
     S: SNARK<C1::ScalarField>,
@@ -77,20 +78,52 @@ where
     <C1 as Group>::ScalarField: Absorb,
     <C2 as Group>::ScalarField: Absorb,
     C1: CurveGroup<BaseField = C2::ScalarField, ScalarField = C2::BaseField>,
+    for<'b> &'b GC1: GroupOpsBounds<'b, C1, GC1>,
     for<'b> &'b GC2: GroupOpsBounds<'b, C2, GC2>,
     // constrain FS into Nova, since this is a Decider specifically for Nova
     Nova<C1, GC1, C2, GC2, FC, CS1, CS2>: From<FS>,
+    crate::folding::nova::ProverParams<C1, C2, CS1, CS2>:
+        From<<FS as FoldingScheme<C1, C2, FC>>::ProverParam>,
+    crate::folding::nova::VerifierParams<C1, C2, CS1, CS2>:
+        From<<FS as FoldingScheme<C1, C2, FC>>::VerifierParam>,
 {
+    type PreprocessorParam = (FS::ProverParam, FS::VerifierParam);
     type ProverParam = (S::ProvingKey, CS1::ProverParams);
     type Proof = Proof<C1, CS1, S>;
     type VerifierParam = (S::VerifyingKey, CS1::VerifierParams);
     type PublicInput = Vec<C1::ScalarField>;
-    type CommittedInstanceWithWitness = ();
     type CommittedInstance = CommittedInstance<C1>;
 
-    fn prove(
-        pp: Self::ProverParam,
+    fn preprocess(
         mut rng: impl RngCore + CryptoRng,
+        prep_param: &Self::PreprocessorParam,
+        fs: FS,
+    ) -> Result<(Self::ProverParam, Self::VerifierParam), Error> {
+        let circuit =
+            DeciderEthCircuit::<C1, GC1, C2, GC2, CS1, CS2>::from_nova::<FC>(fs.into()).unwrap();
+
+        // get the Groth16 specific setup for the circuit
+        let (g16_pk, g16_vk) = S::circuit_specific_setup(circuit, &mut rng).unwrap();
+
+        // get the FoldingScheme prover & verifier params from Nova
+        #[allow(clippy::type_complexity)]
+        let nova_pp:
+            <Nova<C1, GC1, C2, GC2, FC, CS1, CS2> as FoldingScheme<C1, C2, FC>>::ProverParam =
+                prep_param.0.clone().into()
+            ;
+        #[allow(clippy::type_complexity)]
+        let nova_vp:
+            <Nova<C1, GC1, C2, GC2, FC, CS1, CS2> as FoldingScheme<C1, C2, FC>>::VerifierParam =
+                prep_param.1.clone().into();
+
+        let pp = (g16_pk, nova_pp.cs_pp);
+        let vp = (g16_vk, nova_vp.cs_vp);
+        Ok((pp, vp))
+    }
+
+    fn prove(
+        mut rng: impl RngCore + CryptoRng,
+        pp: Self::ProverParam,
         folding_scheme: FS,
     ) -> Result<Self::Proof, Error> {
         let (snark_pk, cs_pk): (S::ProvingKey, CS1::ProverParams) = pp;
@@ -281,13 +314,13 @@ fn point2_to_eth_format(p: ark_bn254::G2Affine) -> Result<Vec<u8>, Error> {
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
     use ark_bn254::{constraints::GVar, Bn254, Fr, G1Projective as Projective};
     use ark_groth16::Groth16;
     use ark_grumpkin::{constraints::GVar as GVar2, Projective as Projective2};
     use ark_poly_commit::kzg10::VerifierKey as KZGVerifierKey;
     use std::time::Instant;
 
+    use super::*;
     use crate::commitment::kzg::{ProverKey as KZGProverKey, KZG};
     use crate::commitment::pedersen::Pedersen;
     use crate::folding::nova::{get_cs_params_len, ProverParams};
@@ -297,7 +330,7 @@ pub mod tests {
     #[test]
     fn test_decider() {
         // use Nova as FoldingScheme
-        type NOVA = Nova<
+        type N = Nova<
             Projective,
             GVar,
             Projective2,
@@ -306,7 +339,7 @@ pub mod tests {
             KZG<'static, Bn254>,
             Pedersen<Projective2>,
         >;
-        type DECIDER = Decider<
+        type D = Decider<
             Projective,
             GVar,
             Projective2,
@@ -315,7 +348,7 @@ pub mod tests {
             KZG<'static, Bn254>,
             Pedersen<Projective2>,
             Groth16<Bn254>, // here we define the Snark to use in the decider
-            NOVA,           // here we define the FoldingScheme to use
+            N,              // here we define the FoldingScheme to use
         >;
 
         let mut rng = ark_std::test_rng();
@@ -339,17 +372,17 @@ pub mod tests {
         let prover_params =
             ProverParams::<Projective, Projective2, KZG<Bn254>, Pedersen<Projective2>> {
                 poseidon_config: poseidon_config.clone(),
-                cs_params: kzg_pk.clone(),
-                cf_cs_params: cf_pedersen_params,
+                cs_pp: kzg_pk.clone(),
+                cf_cs_pp: cf_pedersen_params,
             };
 
         let start = Instant::now();
-        let mut nova = NOVA::init(&prover_params, F_circuit, z_0.clone()).unwrap();
+        let mut nova = N::init(&prover_params, F_circuit, z_0.clone()).unwrap();
         println!("Nova initialized, {:?}", start.elapsed());
         let start = Instant::now();
-        nova.prove_step(vec![]).unwrap();
+        nova.prove_step(&mut rng, vec![]).unwrap();
         println!("prove_step, {:?}", start.elapsed());
-        nova.prove_step(vec![]).unwrap(); // do a 2nd step
+        nova.prove_step(&mut rng, vec![]).unwrap(); // do a 2nd step
 
         // generate Groth16 setup
         let circuit = DeciderEthCircuit::<
@@ -371,13 +404,13 @@ pub mod tests {
         // decider proof generation
         let start = Instant::now();
         let decider_pp = (g16_pk, kzg_pk);
-        let proof = DECIDER::prove(decider_pp, rng, nova.clone()).unwrap();
+        let proof = D::prove(rng, decider_pp, nova.clone()).unwrap();
         println!("Decider prove, {:?}", start.elapsed());
 
         // decider proof verification
         let start = Instant::now();
         let decider_vp = (g16_vk, kzg_vk);
-        let verified = DECIDER::verify(
+        let verified = D::verify(
             decider_vp, nova.i, nova.z_0, nova.z_i, &nova.U_i, &nova.u_i, &proof,
         )
         .unwrap();
