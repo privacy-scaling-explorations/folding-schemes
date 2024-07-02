@@ -14,11 +14,9 @@ use crate::utils::{
     lagrange_poly::compute_lagrange_interpolated_poly, multilinear_polynomial::fix_variables,
     virtual_polynomial::VirtualPolynomial,
 };
-use ark_ec::CurveGroup;
-use ark_ff::Field;
 use ark_ff::{batch_inversion, PrimeField};
 use ark_poly::DenseMultilinearExtension;
-use ark_std::{cfg_into_iter, end_timer, start_timer, vec::Vec};
+use ark_std::{cfg_into_iter, end_timer, start_timer};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator};
 use std::sync::Arc;
 
@@ -28,9 +26,9 @@ use espresso_subroutines::poly_iop::prelude::PolyIOPErrors;
 // #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
-impl<C: CurveGroup> SumCheckProver<C> for IOPProverState<C> {
-    type VirtualPolynomial = VirtualPolynomial<C::ScalarField>;
-    type ProverMessage = IOPProverMessage<C::ScalarField>;
+impl<F: PrimeField> SumCheckProver<F> for IOPProverState<F> {
+    type VirtualPolynomial = VirtualPolynomial<F>;
+    type ProverMessage = IOPProverMessage<F>;
 
     /// Initialize the prover state to argue for the sum of the input polynomial
     /// over {0,1}^`num_vars`.
@@ -49,9 +47,7 @@ impl<C: CurveGroup> SumCheckProver<C> for IOPProverState<C> {
             poly: polynomial.clone(),
             extrapolation_aux: (1..polynomial.aux_info.max_degree)
                 .map(|degree| {
-                    let points = (0..1 + degree as u64)
-                        .map(C::ScalarField::from)
-                        .collect::<Vec<_>>();
+                    let points = (0..1 + degree as u64).map(F::from).collect::<Vec<_>>();
                     let weights = barycentric_weights(&points);
                     (points, weights)
                 })
@@ -65,7 +61,7 @@ impl<C: CurveGroup> SumCheckProver<C> for IOPProverState<C> {
     /// Main algorithm used is from section 3.2 of [XZZPS19](https://eprint.iacr.org/2019/317.pdf#subsection.3.2).
     fn prove_round_and_update_state(
         &mut self,
-        challenge: &Option<C::ScalarField>,
+        challenge: &Option<F>,
     ) -> Result<Self::ProverMessage, PolyIOPErrors> {
         // let start =
         //     start_timer!(|| format!("sum check prove {}-th round and update state",
@@ -90,7 +86,7 @@ impl<C: CurveGroup> SumCheckProver<C> for IOPProverState<C> {
         //    g(r_1, ..., r_{m-1}, x_m ... x_n)
         //
         // eval g over r_m, and mutate g to g(r_1, ... r_m,, x_{m+1}... x_n)
-        let mut flattened_ml_extensions: Vec<DenseMultilinearExtension<C::ScalarField>> = self
+        let mut flattened_ml_extensions: Vec<DenseMultilinearExtension<F>> = self
             .poly
             .flattened_ml_extensions
             .par_iter()
@@ -124,7 +120,7 @@ impl<C: CurveGroup> SumCheckProver<C> for IOPProverState<C> {
         self.round += 1;
 
         let products_list = self.poly.products.clone();
-        let mut products_sum = vec![C::ScalarField::ZERO; self.poly.aux_info.max_degree + 1];
+        let mut products_sum = vec![F::ZERO; self.poly.aux_info.max_degree + 1];
 
         // Step 2: generate sum for the partial evaluated polynomial:
         // f(r_1, ... r_m,, x_{m+1}... x_n)
@@ -134,8 +130,8 @@ impl<C: CurveGroup> SumCheckProver<C> for IOPProverState<C> {
                 .fold(
                     || {
                         (
-                            vec![(C::ScalarField::ZERO, C::ScalarField::ZERO); products.len()],
-                            vec![C::ScalarField::ZERO; products.len() + 1],
+                            vec![(F::ZERO, F::ZERO); products.len()],
+                            vec![F::ZERO; products.len() + 1],
                         )
                     },
                     |(mut buf, mut acc), b| {
@@ -146,17 +142,17 @@ impl<C: CurveGroup> SumCheckProver<C> for IOPProverState<C> {
                                 *eval = table[b << 1];
                                 *step = table[(b << 1) + 1] - table[b << 1];
                             });
-                        acc[0] += buf.iter().map(|(eval, _)| eval).product::<C::ScalarField>();
+                        acc[0] += buf.iter().map(|(eval, _)| eval).product::<F>();
                         acc[1..].iter_mut().for_each(|acc| {
                             buf.iter_mut().for_each(|(eval, step)| *eval += step as &_);
-                            *acc += buf.iter().map(|(eval, _)| eval).product::<C::ScalarField>();
+                            *acc += buf.iter().map(|(eval, _)| eval).product::<F>();
                         });
                         (buf, acc)
                     },
                 )
                 .map(|(_, partial)| partial)
                 .reduce(
-                    || vec![C::ScalarField::ZERO; products.len() + 1],
+                    || vec![F::ZERO; products.len() + 1],
                     |mut sum, partial| {
                         sum.iter_mut()
                             .zip(partial.iter())
@@ -168,7 +164,7 @@ impl<C: CurveGroup> SumCheckProver<C> for IOPProverState<C> {
             let extraploation = cfg_into_iter!(0..self.poly.aux_info.max_degree - products.len())
                 .map(|i| {
                     let (points, weights) = &self.extrapolation_aux[products.len() - 1];
-                    let at = C::ScalarField::from((products.len() + 1 + i) as u64);
+                    let at = F::from((products.len() + 1 + i) as u64);
                     extrapolate(points, weights, &sum, &at)
                 })
                 .collect::<Vec<_>>();
@@ -184,7 +180,7 @@ impl<C: CurveGroup> SumCheckProver<C> for IOPProverState<C> {
             .map(|x| Arc::new(x.clone()))
             .collect();
 
-        let prover_poly = compute_lagrange_interpolated_poly::<C::ScalarField>(&products_sum);
+        let prover_poly = compute_lagrange_interpolated_poly::<F>(&products_sum);
         Ok(IOPProverMessage {
             coeffs: prover_poly.coeffs,
         })

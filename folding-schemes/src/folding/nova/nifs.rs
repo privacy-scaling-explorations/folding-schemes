@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use super::{CommittedInstance, Witness};
 use crate::ccs::r1cs::R1CS;
 use crate::commitment::CommitmentScheme;
+use crate::folding::circuits::cyclefold::{CycleFoldCommittedInstance, CycleFoldWitness};
 use crate::transcript::Transcript;
 use crate::utils::vec::{hadamard, mat_vec_mul, vec_add, vec_scalar_mul, vec_sub};
 use crate::Error;
@@ -109,10 +110,10 @@ where
     pub fn compute_cyclefold_cmT(
         cs_prover_params: &CS::ProverParams,
         r1cs: &R1CS<C::ScalarField>, // R1CS over C2.Fr=C1.Fq (here C=C2)
-        w1: &Witness<C>,
-        ci1: &CommittedInstance<C>,
-        w2: &Witness<C>,
-        ci2: &CommittedInstance<C>,
+        w1: &CycleFoldWitness<C>,
+        ci1: &CycleFoldCommittedInstance<C>,
+        w2: &CycleFoldWitness<C>,
+        ci2: &CycleFoldCommittedInstance<C>,
     ) -> Result<(Vec<C::ScalarField>, C), Error>
     where
         <C as ark_ec::CurveGroup>::BaseField: ark_ff::PrimeField,
@@ -183,7 +184,7 @@ where
     }
 
     pub fn prove_commitments(
-        tr: &mut impl Transcript<C>,
+        tr: &mut impl Transcript<C::ScalarField>,
         cs_prover_params: &CS::ProverParams,
         w: &Witness<C>,
         ci: &CommittedInstance<C>,
@@ -200,7 +201,10 @@ where
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use ark_crypto_primitives::sponge::poseidon::PoseidonConfig;
+    use ark_crypto_primitives::sponge::{
+        poseidon::{PoseidonConfig, PoseidonSponge},
+        CryptographicSponge,
+    };
     use ark_ff::{BigInteger, PrimeField};
     use ark_pallas::{Fr, Projective};
     use ark_std::{ops::Mul, UniformRand};
@@ -209,7 +213,7 @@ pub mod tests {
     use crate::commitment::pedersen::{Params as PedersenParams, Pedersen};
     use crate::folding::nova::circuits::ChallengeGadget;
     use crate::folding::nova::traits::NovaR1CS;
-    use crate::transcript::poseidon::{poseidon_canonical_config, PoseidonTranscript};
+    use crate::transcript::poseidon::poseidon_canonical_config;
 
     #[allow(clippy::type_complexity)]
     pub(crate) fn prepare_simple_fold_inputs<C>() -> (
@@ -258,14 +262,14 @@ pub mod tests {
                 .unwrap();
 
         let poseidon_config = poseidon_canonical_config::<C::ScalarField>();
+        let mut transcript = PoseidonSponge::<C::ScalarField>::new(&poseidon_config);
 
         let r_bits = ChallengeGadget::<C>::get_challenge_native(
-            &poseidon_config,
+            &mut transcript,
             ci1.clone(),
             ci2.clone(),
             cmT,
-        )
-        .unwrap();
+        );
         let r_Fr = C::ScalarField::from_bigint(BigInteger::from_bits_le(&r_bits)).unwrap();
 
         let (w3, ci3) =
@@ -362,9 +366,9 @@ pub mod tests {
             .unwrap();
 
         // init Prover's transcript
-        let mut transcript_p = PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_p = PoseidonSponge::<Fr>::new(&poseidon_config);
         // init Verifier's transcript
-        let mut transcript_v = PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_v = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         // prove the ci3.cmE, ci3.cmW, cmT commitments
         let cm_proofs = NIFS::<Projective, Pedersen<Projective>>::prove_commitments(

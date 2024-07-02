@@ -14,7 +14,7 @@ use super::{
     SumCheckSubClaim, SumCheckVerifier,
 };
 use crate::{transcript::Transcript, utils::virtual_polynomial::VPAuxInfo};
-use ark_ec::CurveGroup;
+use ark_crypto_primitives::sponge::Absorb;
 use ark_ff::PrimeField;
 use ark_poly::Polynomial;
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial};
@@ -24,11 +24,11 @@ use espresso_subroutines::poly_iop::prelude::PolyIOPErrors;
 #[cfg(feature = "parallel")]
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
-impl<C: CurveGroup> SumCheckVerifier<C> for IOPVerifierState<C> {
-    type VPAuxInfo = VPAuxInfo<C::ScalarField>;
-    type ProverMessage = IOPProverMessage<C::ScalarField>;
-    type Challenge = C::ScalarField;
-    type SumCheckSubClaim = SumCheckSubClaim<C::ScalarField>;
+impl<F: PrimeField + Absorb> SumCheckVerifier<F> for IOPVerifierState<F> {
+    type VPAuxInfo = VPAuxInfo<F>;
+    type ProverMessage = IOPProverMessage<F>;
+    type Challenge = F;
+    type SumCheckSubClaim = SumCheckSubClaim<F>;
 
     /// Initialize the verifier's state.
     fn verifier_init(index_info: &Self::VPAuxInfo) -> Self {
@@ -46,9 +46,9 @@ impl<C: CurveGroup> SumCheckVerifier<C> for IOPVerifierState<C> {
 
     fn verify_round_and_update_state(
         &mut self,
-        prover_msg: &<IOPVerifierState<C> as SumCheckVerifier<C>>::ProverMessage,
-        transcript: &mut impl Transcript<C>,
-    ) -> Result<<IOPVerifierState<C> as SumCheckVerifier<C>>::Challenge, PolyIOPErrors> {
+        prover_msg: &<IOPVerifierState<F> as SumCheckVerifier<F>>::ProverMessage,
+        transcript: &mut impl Transcript<F>,
+    ) -> Result<<IOPVerifierState<F> as SumCheckVerifier<F>>::Challenge, PolyIOPErrors> {
         let start =
             start_timer!(|| format!("sum check verify {}-th round and update state", self.round));
 
@@ -83,7 +83,7 @@ impl<C: CurveGroup> SumCheckVerifier<C> for IOPVerifierState<C> {
 
     fn check_and_generate_subclaim(
         &self,
-        asserted_sum: &C::ScalarField,
+        asserted_sum: &F,
     ) -> Result<Self::SumCheckSubClaim, PolyIOPErrors> {
         let start = start_timer!(|| "sum check check and generate subclaim");
         if !self.finished {
@@ -136,8 +136,8 @@ impl<C: CurveGroup> SumCheckVerifier<C> for IOPVerifierState<C> {
             .take(self.num_vars)
         {
             let poly = DensePolynomial::from_coefficients_slice(coeffs);
-            let eval_at_one: C::ScalarField = poly.iter().sum();
-            let eval_at_zero: C::ScalarField = poly.coeffs[0];
+            let eval_at_one: F = poly.iter().sum();
+            let eval_at_zero: F = poly.coeffs[0];
             let eval = eval_at_one + eval_at_zero;
 
             // the deferred check during the interactive phase:

@@ -3,7 +3,7 @@ use std::{
     cmp::{max, min},
 };
 
-use ark_ff::{BigInteger, One, PrimeField, Zero};
+use ark_ff::{BigInteger, Field, One, PrimeField, Zero};
 use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
     boolean::Boolean,
@@ -16,7 +16,10 @@ use ark_relations::r1cs::{ConstraintSystemRef, Namespace, SynthesisError};
 use num_bigint::BigUint;
 use num_integer::Integer;
 
-use crate::utils::gadgets::{MatrixGadget, SparseMatrixVar, VectorGadget};
+use crate::{
+    transcript::{AbsorbNonNative, AbsorbNonNativeGadget},
+    utils::gadgets::{MatrixGadget, SparseMatrixVar, VectorGadget},
+};
 
 /// `LimbVar` represents a single limb of a non-native unsigned integer in the
 /// circuit.
@@ -229,7 +232,7 @@ impl<F: PrimeField> AllocVar<BoundedBigUint, F> for NonNativeUintVar<F> {
     }
 }
 
-impl<F: PrimeField, G: PrimeField> AllocVar<G, F> for NonNativeUintVar<F> {
+impl<F: PrimeField, G: Field> AllocVar<G, F> for NonNativeUintVar<F> {
     fn new_variable<T: Borrow<G>>(
         cs: impl Into<Namespace<F>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
@@ -237,7 +240,8 @@ impl<F: PrimeField, G: PrimeField> AllocVar<G, F> for NonNativeUintVar<F> {
     ) -> Result<Self, SynthesisError> {
         let cs = cs.into().cs();
         let v = f()?;
-        let v = v.borrow();
+        assert_eq!(G::extension_degree(), 1);
+        let v = v.borrow().to_base_prime_field_elements().next().unwrap();
 
         let mut limbs = vec![];
 
@@ -256,8 +260,12 @@ impl<F: PrimeField, G: PrimeField> AllocVar<G, F> for NonNativeUintVar<F> {
 }
 
 impl<F: PrimeField> NonNativeUintVar<F> {
-    pub fn inputize<T: PrimeField>(x: T) -> Vec<F> {
-        x.into_bigint()
+    pub fn inputize<T: Field>(x: T) -> Vec<F> {
+        assert_eq!(T::extension_degree(), 1);
+        x.to_base_prime_field_elements()
+            .next()
+            .unwrap()
+            .into_bigint()
             .to_bits_le()
             .chunks(Self::bits_per_limb())
             .map(|chunk| F::from_bigint(F::BigInt::from_bits_le(chunk)).unwrap())
@@ -802,14 +810,40 @@ impl<F: PrimeField, B: AsRef<[Boolean<F>]>> From<B> for NonNativeUintVar<F> {
     }
 }
 
+// If we impl `AbsorbNonNative` directly for `PrimeField`, rustc will complain
+// that this impl conflicts with the impl for `CurveGroup`.
+// Therefore, we instead impl `AbsorbNonNative` for a slice of `PrimeField` as a
+// workaround.
+impl<TargetField: PrimeField, BaseField: PrimeField> AbsorbNonNative<BaseField>
+    for [TargetField]
+{
+    fn to_native_sponge_field_elements(&self, dest: &mut Vec<BaseField>) {
+        self.iter()
+            .for_each(|x| dest.extend(&nonnative_field_to_field_elements(x)));
+    }
+}
+
+impl<F: PrimeField> AbsorbNonNativeGadget<F> for NonNativeUintVar<F> {
+    fn to_native_sponge_field_elements(&self) -> Result<Vec<FpVar<F>>, SynthesisError> {
+        self.to_constraint_field()
+    }
+}
+
 /// The out-circuit counterpart of `NonNativeUintVar::to_constraint_field`
-pub fn nonnative_field_to_field_elements<TargetField: PrimeField, BaseField: PrimeField>(
+pub(super) fn nonnative_field_to_field_elements<TargetField: Field, BaseField: PrimeField>(
     f: &TargetField,
 ) -> Vec<BaseField> {
-    let bits = f.into_bigint().to_bits_le();
+    assert_eq!(TargetField::extension_degree(), 1);
+    let bits = f
+        .to_base_prime_field_elements()
+        .next()
+        .unwrap()
+        .into_bigint()
+        .to_bits_le();
 
     let bits_per_limb = BaseField::MODULUS_BIT_SIZE as usize - 1;
-    let num_limbs = (TargetField::MODULUS_BIT_SIZE as usize).div_ceil(bits_per_limb);
+    let num_limbs =
+        (TargetField::BasePrimeField::MODULUS_BIT_SIZE as usize).div_ceil(bits_per_limb);
 
     let mut limbs = bits
         .chunks(bits_per_limb)
@@ -897,7 +931,6 @@ mod tests {
     use std::error::Error;
 
     use super::*;
-    use ark_ff::Field;
     use ark_pallas::{Fq, Fr};
     use ark_relations::r1cs::ConstraintSystem;
     use ark_std::{test_rng, UniformRand};

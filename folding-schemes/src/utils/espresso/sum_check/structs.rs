@@ -10,7 +10,6 @@
 //! This module defines structs that are shared by all sub protocols.
 
 use crate::utils::virtual_polynomial::VirtualPolynomial;
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_serialize::CanonicalSerialize;
 
@@ -33,28 +32,28 @@ pub struct IOPProverMessage<F: PrimeField> {
 
 /// Prover State of a PolyIOP.
 #[derive(Debug)]
-pub struct IOPProverState<C: CurveGroup> {
+pub struct IOPProverState<F: PrimeField> {
     /// sampled randomness given by the verifier
-    pub challenges: Vec<C::ScalarField>,
+    pub challenges: Vec<F>,
     /// the current round number
     pub(crate) round: usize,
     /// pointer to the virtual polynomial
-    pub(crate) poly: VirtualPolynomial<C::ScalarField>,
+    pub(crate) poly: VirtualPolynomial<F>,
     /// points with precomputed barycentric weights for extrapolating smaller
     /// degree uni-polys to `max_degree + 1` evaluations.
     #[allow(clippy::type_complexity)]
-    pub(crate) extrapolation_aux: Vec<(Vec<C::ScalarField>, Vec<C::ScalarField>)>,
+    pub(crate) extrapolation_aux: Vec<(Vec<F>, Vec<F>)>,
 }
 
 /// Verifier State of a PolyIOP, generic over a curve group
 #[derive(Debug)]
-pub struct IOPVerifierState<C: CurveGroup> {
+pub struct IOPVerifierState<F: PrimeField> {
     pub(crate) round: usize,
     pub(crate) num_vars: usize,
     pub(crate) finished: bool,
     /// a list storing the univariate polynomial in evaluation form sent by the
     /// prover at each round
-    pub(crate) polynomials_received: Vec<Vec<C::ScalarField>>,
+    pub(crate) polynomials_received: Vec<Vec<F>>,
     /// a list storing the randomness sampled by the verifier at each round
-    pub(crate) challenges: Vec<C::ScalarField>,
+    pub(crate) challenges: Vec<F>,
 }

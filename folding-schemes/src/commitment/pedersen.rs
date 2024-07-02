@@ -74,13 +74,13 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for Pedersen<C, H> {
 
     fn prove(
         params: &Self::ProverParams,
-        transcript: &mut impl Transcript<C>,
+        transcript: &mut impl Transcript<C::ScalarField>,
         cm: &C,
         v: &[C::ScalarField],
         r: &C::ScalarField, // blinding factor
         _rng: Option<&mut dyn RngCore>,
     ) -> Result<Self::Proof, Error> {
-        transcript.absorb_point(cm)?;
+        transcript.absorb_nonnative(cm);
         let r1 = transcript.get_challenge();
         let d = transcript.get_challenges(v.len());
 
@@ -91,7 +91,7 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for Pedersen<C, H> {
             R += params.h.mul(r1);
         }
 
-        transcript.absorb_point(&R)?;
+        transcript.absorb_nonnative(&R);
         let e = transcript.get_challenge();
 
         let challenge = (r1, d, R, e);
@@ -126,14 +126,14 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for Pedersen<C, H> {
 
     fn verify(
         params: &Self::VerifierParams,
-        transcript: &mut impl Transcript<C>,
+        transcript: &mut impl Transcript<C::ScalarField>,
         cm: &C,
         proof: &Proof<C>,
     ) -> Result<(), Error> {
-        transcript.absorb_point(cm)?;
+        transcript.absorb_nonnative(cm);
         transcript.get_challenge(); // r_1
         transcript.get_challenges(proof.u.len()); // d
-        transcript.absorb_point(&proof.R)?;
+        transcript.absorb_nonnative(&proof.R);
         let e = transcript.get_challenge();
         Self::verify_with_challenge(params, e, cm, proof)
     }
@@ -210,14 +210,14 @@ where
 
 #[cfg(test)]
 mod tests {
+    use ark_crypto_primitives::sponge::{poseidon::PoseidonSponge, CryptographicSponge};
     use ark_ff::{BigInteger, PrimeField};
     use ark_pallas::{constraints::GVar, Fq, Fr, Projective};
     use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget};
     use ark_relations::r1cs::ConstraintSystem;
-    use ark_std::UniformRand;
 
     use super::*;
-    use crate::transcript::poseidon::{poseidon_canonical_config, PoseidonTranscript};
+    use crate::transcript::poseidon::poseidon_canonical_config;
 
     #[test]
     fn test_pedersen() {
@@ -233,9 +233,9 @@ mod tests {
         let poseidon_config = poseidon_canonical_config::<Fr>();
 
         // init Prover's transcript
-        let mut transcript_p = PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_p = PoseidonSponge::<Fr>::new(&poseidon_config);
         // init Verifier's transcript
-        let mut transcript_v = PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_v = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         let v: Vec<Fr> = std::iter::repeat_with(|| Fr::rand(&mut rng))
             .take(n)

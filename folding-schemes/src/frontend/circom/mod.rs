@@ -207,8 +207,7 @@ impl<F: PrimeField> CircomFCircuit<F> {
 pub mod tests {
     use super::*;
     use ark_bn254::Fr;
-    use ark_r1cs_std::alloc::AllocVar;
-    use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
+    use ark_relations::r1cs::ConstraintSystem;
 
     // Tests the step_native function of CircomFCircuit.
     #[test]

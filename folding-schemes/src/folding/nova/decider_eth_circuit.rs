@@ -1,7 +1,10 @@
 /// This file implements the onchain (Ethereum's EVM) decider circuit. For non-ethereum use cases,
 /// other more efficient approaches can be used.
-use ark_crypto_primitives::crh::poseidon::constraints::CRHParametersVar;
-use ark_crypto_primitives::sponge::{poseidon::PoseidonConfig, Absorb};
+use ark_crypto_primitives::sponge::{
+    constraints::CryptographicSpongeVar,
+    poseidon::{constraints::PoseidonSpongeVar, PoseidonConfig, PoseidonSponge},
+    Absorb, CryptographicSponge,
+};
 use ark_ec::{CurveGroup, Group};
 use ark_ff::{BigInteger, PrimeField};
 use ark_poly::Polynomial;
@@ -19,22 +22,20 @@ use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, Namespace,
 use ark_std::{log2, Zero};
 use core::{borrow::Borrow, marker::PhantomData};
 
-use super::{circuits::ChallengeGadget, nifs::NIFS};
+use super::{
+    circuits::{ChallengeGadget, CommittedInstanceVar},
+    nifs::NIFS,
+    CommittedInstance, Nova, Witness,
+};
 use crate::ccs::r1cs::R1CS;
 use crate::commitment::{pedersen::Params as PedersenParams, CommitmentScheme};
 use crate::folding::circuits::{
-    nonnative::{
-        affine::{nonnative_affine_to_field_elements, NonNativeAffineVar},
-        uint::NonNativeUintVar,
-    },
+    cyclefold::{CycleFoldCommittedInstance, CycleFoldWitness},
+    nonnative::{affine::NonNativeAffineVar, uint::NonNativeUintVar},
     CF1, CF2,
 };
-use crate::folding::nova::{circuits::CommittedInstanceVar, CommittedInstance, Nova, Witness};
 use crate::frontend::FCircuit;
-use crate::transcript::{
-    poseidon::{PoseidonTranscript, PoseidonTranscriptVar},
-    Transcript, TranscriptVar,
-};
+use crate::transcript::{Transcript, TranscriptVar};
 use crate::utils::{
     gadgets::{MatrixGadget, SparseMatrixVar, VectorGadget},
     vec::poly_from_vec,
@@ -159,7 +160,7 @@ where
     }
 }
 
-/// In-circuit representation of the Witness associated to the CommittedInstance, but with
+/// In-circuit representation of the Witness associated to the CycleFoldCommittedInstance, but with
 /// non-native representation, since it is used to represent the CycleFold witness.
 #[derive(Debug, Clone)]
 pub struct CycleFoldWitnessVar<C: CurveGroup> {
@@ -169,12 +170,12 @@ pub struct CycleFoldWitnessVar<C: CurveGroup> {
     pub rW: NonNativeUintVar<CF2<C>>,
 }
 
-impl<C> AllocVar<Witness<C>, CF2<C>> for CycleFoldWitnessVar<C>
+impl<C> AllocVar<CycleFoldWitness<C>, CF2<C>> for CycleFoldWitnessVar<C>
 where
     C: CurveGroup,
     <C as ark_ec::CurveGroup>::BaseField: PrimeField,
 {
-    fn new_variable<T: Borrow<Witness<C>>>(
+    fn new_variable<T: Borrow<CycleFoldWitness<C>>>(
         cs: impl Into<Namespace<CF2<C>>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
         mode: AllocationMode,
@@ -238,8 +239,8 @@ where
     pub cmT: Option<C1>,
     pub r: Option<C1::ScalarField>,
     /// CycleFold running instance
-    pub cf_U_i: Option<CommittedInstance<C2>>,
-    pub cf_W_i: Option<Witness<C2>>,
+    pub cf_U_i: Option<CycleFoldCommittedInstance<C2>>,
+    pub cf_W_i: Option<CycleFoldWitness<C2>>,
 
     /// KZG challenges
     pub kzg_c_W: Option<C1::ScalarField>,
@@ -262,6 +263,8 @@ where
     pub fn from_nova<FC: FCircuit<C1::ScalarField>>(
         nova: Nova<C1, GC1, C2, GC2, FC, CS1, CS2>,
     ) -> Result<Self, Error> {
+        let mut transcript = PoseidonSponge::<C1::ScalarField>::new(&nova.poseidon_config);
+
         // compute the U_{i+1}, W_{i+1}
         let (T, cmT) = NIFS::<C1, CS1>::compute_cmT(
             &nova.cs_params,
@@ -272,11 +275,11 @@ where
             &nova.U_i.clone(),
         )?;
         let r_bits = ChallengeGadget::<C1>::get_challenge_native(
-            &nova.poseidon_config,
+            &mut transcript,
             nova.U_i.clone(),
             nova.u_i.clone(),
             cmT,
-        )?;
+        );
         let r_Fr = C1::ScalarField::from_bigint(BigInteger::from_bits_le(&r_bits))
             .ok_or(Error::OutOfBounds)?;
         let (W_i1, U_i1) = NIFS::<C1, CS1>::fold_instances(
@@ -285,7 +288,7 @@ where
 
         // compute the KZG challenges used as inputs in the circuit
         let (kzg_challenge_W, kzg_challenge_E) =
-            KZGChallengesGadget::<C1>::get_challenges_native(&nova.poseidon_config, U_i1.clone())?;
+            KZGChallengesGadget::<C1>::get_challenges_native(&mut transcript, U_i1.clone());
 
         // get KZG evals
         let mut W = W_i1.W.clone();
@@ -403,10 +406,10 @@ where
             Ok(self.eval_E.unwrap_or_else(CF1::<C1>::zero))
         })?;
 
-        let crh_params = CRHParametersVar::<C1::ScalarField>::new_constant(
-            cs.clone(),
-            self.poseidon_config.clone(),
-        )?;
+        // `sponge` is for digest computation.
+        let sponge = PoseidonSpongeVar::<C1::ScalarField>::new(cs.clone(), &self.poseidon_config);
+        // `transcript` is for challenge generation.
+        let mut transcript = sponge.clone();
 
         // 1. check RelaxedR1CS of U_{i+1}
         let z_U1: Vec<FpVar<CF1<C1>>> =
@@ -421,9 +424,9 @@ where
         (u_i.u.is_one()?).enforce_equal(&Boolean::TRUE)?;
 
         // 3.a u_i.x[0] == H(i, z_0, z_i, U_i)
-        let (u_i_x, U_i_vec) =
-            U_i.clone()
-                .hash(&crh_params, i.clone(), z_0.clone(), z_i.clone())?;
+        let (u_i_x, U_i_vec) = U_i
+            .clone()
+            .hash(&sponge, i.clone(), z_0.clone(), z_i.clone())?;
         (u_i.x[0]).enforce_equal(&u_i_x)?;
 
         #[cfg(feature = "light-test")]
@@ -438,11 +441,15 @@ where
             // imports here instead of at the top of the file, so we avoid having multiple
             // `#[cfg(not(test))]`
             use crate::commitment::pedersen::PedersenGadget;
-            use crate::folding::nova::cyclefold::{CycleFoldCommittedInstanceVar, CF_IO_LEN};
+            use crate::folding::{
+                circuits::cyclefold::{CycleFoldCommittedInstanceVar, CycleFoldConfig},
+                nova::NovaCycleFoldConfig,
+            };
             use ark_r1cs_std::ToBitsGadget;
 
-            let cf_u_dummy_native = CommittedInstance::<C2>::dummy(CF_IO_LEN);
-            let w_dummy_native = Witness::<C2>::new(
+            let cf_u_dummy_native =
+                CycleFoldCommittedInstance::dummy(NovaCycleFoldConfig::<C1>::IO_LEN);
+            let w_dummy_native = CycleFoldWitness::<C2>::new(
                 vec![C2::ScalarField::zero(); self.cf_r1cs.A.n_cols - 1 - self.cf_r1cs.l],
                 self.cf_E_len,
             );
@@ -454,7 +461,7 @@ where
             })?;
 
             // 3.b u_i.x[1] == H(cf_U_i)
-            let (cf_u_i_x, _) = cf_U_i.clone().hash(&crh_params)?;
+            let (cf_u_i_x, _) = cf_U_i.clone().hash(&sponge)?;
             (u_i.x[1]).enforce_equal(&cf_u_i_x)?;
 
             // 4. check Pedersen commitments of cf_U_i.{cmE, cmW}
@@ -487,12 +494,22 @@ where
             RelaxedR1CSGadget::check_nonnative(cf_r1cs, cf_W_i.E, cf_U_i.u.clone(), cf_z_U)?;
         }
 
-        // 6. check KZG challenges
-        let (incircuit_c_W, incircuit_c_E) = KZGChallengesGadget::<C1>::get_challenges_gadget(
-            cs.clone(),
-            &self.poseidon_config,
-            U_i1.clone(),
+        // 8.a, 6.a compute NIFS.V and KZG challenges.
+        // We need to ensure the order of challenge generation is the same as
+        // the native counterpart, so we first compute the challenges here and
+        // do the actual checks later.
+        let cmT =
+            NonNativeAffineVar::new_input(cs.clone(), || Ok(self.cmT.unwrap_or_else(C1::zero)))?;
+        let r_bits = ChallengeGadget::<C1>::get_challenge_gadget(
+            &mut transcript,
+            U_i_vec,
+            u_i.clone(),
+            cmT.clone(),
         )?;
+        let (incircuit_c_W, incircuit_c_E) =
+            KZGChallengesGadget::<C1>::get_challenges_gadget(&mut transcript, U_i1.clone())?;
+
+        // 6.b check KZG challenges
         incircuit_c_W.enforce_equal(&kzg_c_W)?;
         incircuit_c_E.enforce_equal(&kzg_c_E)?;
 
@@ -505,17 +522,8 @@ where
         // incircuit_eval_W.enforce_equal(&eval_W)?;
         // incircuit_eval_E.enforce_equal(&eval_E)?;
 
-        // 8. compute the NIFS.V challenge and check that matches the one from the public input (so we
+        // 8.b check the NIFS.V challenge matches the one from the public input (so we
         // avoid the verifier computing it)
-        let cmT =
-            NonNativeAffineVar::new_input(cs.clone(), || Ok(self.cmT.unwrap_or_else(C1::zero)))?;
-        let r_bits = ChallengeGadget::<C1>::get_challenge_gadget(
-            cs.clone(),
-            &self.poseidon_config,
-            U_i_vec,
-            u_i.clone(),
-            cmT.clone(),
-        )?;
         let r_Fr = Boolean::le_bits_to_fp_var(&r_bits)?;
         // check that the in-circuit computed r is equal to the inputted r
         let r =
@@ -557,38 +565,28 @@ where
     <C as CurveGroup>::BaseField: PrimeField,
     C::ScalarField: Absorb,
 {
-    pub fn get_challenges_native(
-        poseidon_config: &PoseidonConfig<C::ScalarField>,
+    pub fn get_challenges_native<T: Transcript<C::ScalarField>>(
+        transcript: &mut T,
         U_i: CommittedInstance<C>,
-    ) -> Result<(C::ScalarField, C::ScalarField), Error> {
-        let (cmE_x_limbs, cmE_y_limbs) = nonnative_affine_to_field_elements(U_i.cmE)?;
-        let (cmW_x_limbs, cmW_y_limbs) = nonnative_affine_to_field_elements(U_i.cmW)?;
-
-        let transcript = &mut PoseidonTranscript::<C>::new(poseidon_config);
+    ) -> (C::ScalarField, C::ScalarField) {
         // compute the KZG challenges, which are computed in-circuit and checked that it matches
         // the inputted one
-        transcript.absorb_vec(&cmW_x_limbs);
-        transcript.absorb_vec(&cmW_y_limbs);
+        transcript.absorb_nonnative(&U_i.cmW);
         let challenge_W = transcript.get_challenge();
-        transcript.absorb_vec(&cmE_x_limbs);
-        transcript.absorb_vec(&cmE_y_limbs);
+        transcript.absorb_nonnative(&U_i.cmE);
         let challenge_E = transcript.get_challenge();
 
-        Ok((challenge_W, challenge_E))
+        (challenge_W, challenge_E)
     }
     // compatible with the native get_challenges_native
-    pub fn get_challenges_gadget(
-        cs: ConstraintSystemRef<C::ScalarField>,
-        poseidon_config: &PoseidonConfig<C::ScalarField>,
+    pub fn get_challenges_gadget<S: CryptographicSponge, T: TranscriptVar<CF1<C>, S>>(
+        transcript: &mut T,
         U_i: CommittedInstanceVar<C>,
     ) -> Result<(FpVar<C::ScalarField>, FpVar<C::ScalarField>), SynthesisError> {
-        let mut transcript =
-            PoseidonTranscriptVar::<CF1<C>>::new(cs.clone(), &poseidon_config.clone());
-
-        transcript.absorb_vec(&U_i.cmW.to_constraint_field()?[..])?;
+        transcript.absorb(&U_i.cmW.to_constraint_field()?)?;
         let challenge_W = transcript.get_challenge()?;
 
-        transcript.absorb_vec(&U_i.cmE.to_constraint_field()?[..])?;
+        transcript.absorb(&U_i.cmE.to_constraint_field()?)?;
         let challenge_E = transcript.get_challenge()?;
 
         Ok((challenge_W, challenge_E))
@@ -844,6 +842,7 @@ pub mod tests {
     fn test_kzg_challenge_gadget() {
         let mut rng = ark_std::test_rng();
         let poseidon_config = poseidon_canonical_config::<Fr>();
+        let mut transcript = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         let U_i = CommittedInstance::<Projective> {
             cmE: Projective::rand(&mut rng),
@@ -854,21 +853,17 @@ pub mod tests {
 
         // compute the challenge natively
         let (challenge_W, challenge_E) =
-            KZGChallengesGadget::<Projective>::get_challenges_native(&poseidon_config, U_i.clone())
-                .unwrap();
+            KZGChallengesGadget::<Projective>::get_challenges_native(&mut transcript, U_i.clone());
 
         let cs = ConstraintSystem::<Fr>::new_ref();
         let U_iVar =
             CommittedInstanceVar::<Projective>::new_witness(cs.clone(), || Ok(U_i.clone()))
                 .unwrap();
+        let mut transcript_var = PoseidonSpongeVar::<Fr>::new(cs.clone(), &poseidon_config);
 
         let (challenge_W_Var, challenge_E_Var) =
-            KZGChallengesGadget::<Projective>::get_challenges_gadget(
-                cs.clone(),
-                &poseidon_config,
-                U_iVar,
-            )
-            .unwrap();
+            KZGChallengesGadget::<Projective>::get_challenges_gadget(&mut transcript_var, U_iVar)
+                .unwrap();
         assert!(cs.is_satisfied().unwrap());
 
         // check that the natively computed and in-circuit computed hashes match
