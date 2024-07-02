@@ -16,7 +16,7 @@ use super::utils::{all_powers, betas_star, exponential_powers};
 use super::ProtoGalaxyError;
 use super::{CommittedInstance, Witness};
 
-use crate::ccs::r1cs::R1CS;
+use crate::arith::r1cs::R1CS;
 use crate::transcript::Transcript;
 use crate::utils::vec::*;
 use crate::utils::virtual_polynomial::bit_decompose;
@@ -383,7 +383,7 @@ mod tests {
     use ark_pallas::{Fr, Projective};
     use ark_std::UniformRand;
 
-    use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z};
+    use crate::arith::r1cs::tests::{get_test_r1cs, get_test_z};
     use crate::commitment::{pedersen::Pedersen, CommitmentScheme};
     use crate::transcript::poseidon::{poseidon_canonical_config, PoseidonTranscript};
 

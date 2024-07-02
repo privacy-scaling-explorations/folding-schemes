@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn kzg_vk_serde_roundtrip() {
-        let (pk, vk, _, _, _) = setup(DEFAULT_SETUP_LEN);
+        let (_, pk, vk, _, _, _) = setup(DEFAULT_SETUP_LEN);
 
         let kzg_vk = KZG10VerifierKey::from((vk, pk.powers_of_g[0..3].to_vec()));
         let mut bytes = vec![];
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn kzg_verifier_compiles() {
-        let (kzg_pk, kzg_vk, _, _, _) = setup(DEFAULT_SETUP_LEN);
+        let (_, kzg_pk, kzg_vk, _, _, _) = setup(DEFAULT_SETUP_LEN);
         let kzg_vk = KZG10VerifierKey::from((kzg_vk.clone(), kzg_pk.powers_of_g[0..3].to_vec()));
 
         let res = HeaderInclusion::<KZG10Verifier>::builder()
@@ -136,7 +136,7 @@ mod tests {
         let transcript_p = &mut PoseidonTranscript::<G1>::new(&poseidon_config);
         let transcript_v = &mut PoseidonTranscript::<G1>::new(&poseidon_config);
 
-        let (kzg_pk, kzg_vk, _, _, _) = setup(DEFAULT_SETUP_LEN);
+        let (_, kzg_pk, kzg_vk, _, _, _) = setup(DEFAULT_SETUP_LEN);
         let kzg_vk = KZG10VerifierKey::from((kzg_vk.clone(), kzg_pk.powers_of_g[0..3].to_vec()));
 
         let v: Vec<Fr> = std::iter::repeat_with(|| Fr::rand(&mut rng))

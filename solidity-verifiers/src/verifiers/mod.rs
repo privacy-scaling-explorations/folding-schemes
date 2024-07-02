@@ -97,6 +97,7 @@ pub mod tests {
     pub fn setup<'a>(
         n: usize,
     ) -> (
+        Fr, // public params hash
         KZGProverKey<'a, G1>,
         KZGVerifierKey<Bn254>,
         ark_groth16::ProvingKey<Bn254>,
@@ -115,6 +116,7 @@ pub mod tests {
 
         let (kzg_pk, kzg_vk): (KZGProverKey<G1>, KZGVerifierKey<Bn254>) =
             KZG::<Bn254>::setup(&mut rng, n).unwrap();
-        (kzg_pk, kzg_vk, g16_pk, g16_vk, circuit)
+        let pp_hash = Fr::from(42u32); // only for test
+        (pp_hash, kzg_pk, kzg_vk, g16_pk, g16_vk, circuit)
     }
 }

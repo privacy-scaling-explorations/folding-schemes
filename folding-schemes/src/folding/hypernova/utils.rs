@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use super::lcccs::LCCCS;
 use super::nimfs::SigmasThetas;
-use crate::ccs::CCS;
+use crate::arith::ccs::CCS;
 use crate::utils::mle::dense_vec_to_dense_mle;
 use crate::utils::vec::mat_vec_mul;
 use crate::utils::virtual_polynomial::{build_eq_x_r_vec, eq_eval, VirtualPolynomial};
@@ -167,7 +167,10 @@ pub mod tests {
     use ark_std::Zero;
 
     use super::*;
-    use crate::ccs::tests::{get_test_ccs, get_test_z};
+    use crate::arith::{
+        ccs::tests::{get_test_ccs, get_test_z},
+        Arith,
+    };
     use crate::commitment::{pedersen::Pedersen, CommitmentScheme};
     use crate::folding::hypernova::lcccs::tests::compute_Ls;
     use crate::utils::hypercube::BooleanHypercube;
@@ -239,7 +242,9 @@ pub mod tests {
         // Initialize a multifolding object
         let (pedersen_params, _) =
             Pedersen::<Projective>::setup(&mut rng, ccs.n - ccs.l - 1).unwrap();
-        let (lcccs_instance, _) = ccs.to_lcccs(&mut rng, &pedersen_params, &z1).unwrap();
+        let (lcccs_instance, _) = ccs
+            .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z1)
+            .unwrap();
 
         let sigmas_thetas =
             compute_sigmas_thetas(&ccs, &[z1.clone()], &[z2.clone()], &r_x_prime).unwrap();
@@ -287,7 +292,9 @@ pub mod tests {
         // Initialize a multifolding object
         let (pedersen_params, _) =
             Pedersen::<Projective>::setup(&mut rng, ccs.n - ccs.l - 1).unwrap();
-        let (lcccs_instance, _) = ccs.to_lcccs(&mut rng, &pedersen_params, &z1).unwrap();
+        let (lcccs_instance, _) = ccs
+            .to_lcccs::<_, _, Pedersen<Projective>>(&mut rng, &pedersen_params, &z1)
+            .unwrap();
 
         // Compute g(x) with that r_x
         let g = compute_g::<Projective>(

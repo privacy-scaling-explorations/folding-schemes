@@ -4,8 +4,7 @@ use ark_std::log2;
 use crate::utils::vec::{hadamard, mat_vec_mul, vec_add, vec_scalar_mul, SparseMatrix};
 use crate::Error;
 
-pub mod r1cs;
-use r1cs::R1CS;
+use super::{r1cs::R1CS, Arith};
 
 /// CCS represents the Customizable Constraint Systems structure defined in
 /// the [CCS paper](https://eprint.iacr.org/2023/552)
@@ -36,9 +35,9 @@ pub struct CCS<F: PrimeField> {
     pub c: Vec<F>,
 }
 
-impl<F: PrimeField> CCS<F> {
+impl<F: PrimeField> Arith<F> for CCS<F> {
     /// check that a CCS structure is satisfied by a z vector. Only for testing.
-    pub fn check_relation(&self, z: &[F]) -> Result<(), Error> {
+    fn check_relation(&self, z: &[F]) -> Result<(), Error> {
         let mut result = vec![F::zero(); self.m];
 
         for i in 0..self.q {
@@ -66,6 +65,18 @@ impl<F: PrimeField> CCS<F> {
         }
 
         Ok(())
+    }
+
+    fn params_to_bytes(&self) -> Vec<u8> {
+        [
+            self.l.to_le_bytes(),
+            self.m.to_le_bytes(),
+            self.n.to_le_bytes(),
+            self.t.to_le_bytes(),
+            self.q.to_le_bytes(),
+            self.d.to_le_bytes(),
+        ]
+        .concat()
     }
 }
 
@@ -102,7 +113,7 @@ impl<F: PrimeField> CCS<F> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::ccs::r1cs::tests::{get_test_r1cs, get_test_z as r1cs_get_test_z};
+    use crate::arith::r1cs::tests::{get_test_r1cs, get_test_z as r1cs_get_test_z};
     use ark_ff::PrimeField;
     use ark_pallas::Fr;
 
