@@ -18,8 +18,6 @@ use rayon::prelude::*;
 use std::{cmp::max, collections::HashMap, marker::PhantomData, ops::Add, sync::Arc};
 use thiserror::Error;
 
-use ark_std::string::String;
-
 //-- aritherrors
 /// A `enum` specifying the possible failure modes of the arithmetics.
 #[derive(Error, Debug)]

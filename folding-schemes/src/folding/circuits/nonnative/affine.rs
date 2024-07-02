@@ -1,5 +1,4 @@
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::PrimeField;
 use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
     fields::fp::FpVar,
@@ -9,16 +8,15 @@ use ark_relations::r1cs::{Namespace, SynthesisError};
 use ark_std::Zero;
 use core::borrow::Borrow;
 
+use crate::transcript::{AbsorbNonNative, AbsorbNonNativeGadget};
+
 use super::uint::{nonnative_field_to_field_elements, NonNativeUintVar};
 
 /// NonNativeAffineVar represents an elliptic curve point in Affine representation in the non-native
 /// field, over the constraint field. It is not intended to perform operations, but just to contain
 /// the affine coordinates in order to perform hash operations of the point.
 #[derive(Debug, Clone)]
-pub struct NonNativeAffineVar<C: CurveGroup>
-where
-    <C as CurveGroup>::BaseField: PrimeField,
-{
+pub struct NonNativeAffineVar<C: CurveGroup> {
     pub x: NonNativeUintVar<C::ScalarField>,
     pub y: NonNativeUintVar<C::ScalarField>,
 }
@@ -26,7 +24,6 @@ where
 impl<C> AllocVar<C, C::ScalarField> for NonNativeAffineVar<C>
 where
     C: CurveGroup,
-    <C as CurveGroup>::BaseField: PrimeField,
 {
     fn new_variable<T: Borrow<C>>(
         cs: impl Into<Namespace<C::ScalarField>>,
@@ -37,21 +34,18 @@ where
             let cs = cs.into();
 
             let affine = val.borrow().into_affine();
-            let zero_point = (&C::BaseField::zero(), &C::BaseField::zero());
-            let xy = affine.xy().unwrap_or(zero_point);
+            let zero = (&C::BaseField::zero(), &C::BaseField::zero());
+            let (x, y) = affine.xy().unwrap_or(zero);
 
-            let x = NonNativeUintVar::new_variable(cs.clone(), || Ok(*xy.0), mode)?;
-            let y = NonNativeUintVar::new_variable(cs.clone(), || Ok(*xy.1), mode)?;
+            let x = NonNativeUintVar::new_variable(cs.clone(), || Ok(*x), mode)?;
+            let y = NonNativeUintVar::new_variable(cs.clone(), || Ok(*y), mode)?;
 
             Ok(Self { x, y })
         })
     }
 }
 
-impl<C: CurveGroup> ToConstraintFieldGadget<C::ScalarField> for NonNativeAffineVar<C>
-where
-    <C as CurveGroup>::BaseField: PrimeField,
-{
+impl<C: CurveGroup> ToConstraintFieldGadget<C::ScalarField> for NonNativeAffineVar<C> {
     // Used for converting `NonNativeAffineVar` to a vector of `FpVar` with minimum length in
     // the circuit.
     fn to_constraint_field(&self) -> Result<Vec<FpVar<C::ScalarField>>, SynthesisError> {
@@ -63,47 +57,47 @@ where
 
 /// The out-circuit counterpart of `NonNativeAffineVar::to_constraint_field`
 #[allow(clippy::type_complexity)]
-pub fn nonnative_affine_to_field_elements<C: CurveGroup>(
+fn nonnative_affine_to_field_elements<C: CurveGroup>(
     p: C,
-) -> Result<(Vec<C::ScalarField>, Vec<C::ScalarField>), SynthesisError>
-where
-    <C as CurveGroup>::BaseField: PrimeField,
-{
+) -> (Vec<C::ScalarField>, Vec<C::ScalarField>) {
     let affine = p.into_affine();
-    if affine.is_zero() {
-        let x = nonnative_field_to_field_elements(&C::BaseField::zero());
-        let y = nonnative_field_to_field_elements(&C::BaseField::zero());
-        return Ok((x, y));
-    }
+    let zero = (&C::BaseField::zero(), &C::BaseField::zero());
+    let (x, y) = affine.xy().unwrap_or(zero);
 
-    let (x, y) = affine.xy().unwrap();
     let x = nonnative_field_to_field_elements(x);
     let y = nonnative_field_to_field_elements(y);
-    Ok((x, y))
+    (x, y)
 }
 
-impl<C: CurveGroup> NonNativeAffineVar<C>
-where
-    <C as CurveGroup>::BaseField: PrimeField,
-{
-    // A wrapper of `point_to_nonnative_limbs_custom_opt` with constraints-focused optimization
-    // type (which is the default optimization type for arkworks' Groth16).
-    // Used for extracting a list of field elements of type `C::ScalarField` from the public input
+impl<C: CurveGroup> NonNativeAffineVar<C> {
+    // Extracts a list of field elements of type `C::ScalarField` from the public input
     // `p`, in exactly the same way as how `NonNativeAffineVar` is represented as limbs of type
     // `FpVar` in-circuit.
     #[allow(clippy::type_complexity)]
     pub fn inputize(p: C) -> Result<(Vec<C::ScalarField>, Vec<C::ScalarField>), SynthesisError> {
         let affine = p.into_affine();
-        if affine.is_zero() {
-            let x = NonNativeUintVar::inputize(C::BaseField::zero());
-            let y = NonNativeUintVar::inputize(C::BaseField::zero());
-            return Ok((x, y));
-        }
+        let zero = (&C::BaseField::zero(), &C::BaseField::zero());
+        let (x, y) = affine.xy().unwrap_or(zero);
 
-        let (x, y) = affine.xy().unwrap();
         let x = NonNativeUintVar::inputize(*x);
         let y = NonNativeUintVar::inputize(*y);
         Ok((x, y))
+    }
+}
+
+impl<C: CurveGroup> AbsorbNonNative<C::ScalarField> for C {
+    fn to_native_sponge_field_elements(&self, dest: &mut Vec<C::ScalarField>) {
+        let (x, y) = nonnative_affine_to_field_elements(*self);
+        dest.extend(x);
+        dest.extend(y);
+    }
+}
+
+impl<C: CurveGroup> AbsorbNonNativeGadget<C::ScalarField> for NonNativeAffineVar<C> {
+    fn to_native_sponge_field_elements(
+        &self,
+    ) -> Result<Vec<FpVar<C::ScalarField>>, SynthesisError> {
+        self.to_constraint_field()
     }
 }
 
@@ -132,7 +126,7 @@ mod tests {
         let mut rng = ark_std::test_rng();
         let p = Projective::rand(&mut rng);
         let pVar = NonNativeAffineVar::<Projective>::new_witness(cs.clone(), || Ok(p)).unwrap();
-        let (x, y) = nonnative_affine_to_field_elements(p).unwrap();
+        let (x, y) = nonnative_affine_to_field_elements(p);
         assert_eq!(
             pVar.to_constraint_field().unwrap().value().unwrap(),
             [x, y].concat()

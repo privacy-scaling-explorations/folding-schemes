@@ -110,7 +110,6 @@ mod tests {
     use ark_circom::circom::{CircomBuilder, CircomConfig};
     use ark_circom::CircomCircuit;
     use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
-    use std::path::PathBuf;
 
     //To generate .r1cs and .wasm files, run the below command in the terminal.
     //bash ./folding-schemes/src/frontend/circom/test_folder/compile.sh

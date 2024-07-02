@@ -90,7 +90,7 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for IPA<C, H> {
 
     fn prove(
         params: &Self::ProverParams,
-        transcript: &mut impl Transcript<C>,
+        transcript: &mut impl Transcript<C::ScalarField>,
         P: &C,                // commitment
         a: &[C::ScalarField], // vector
         blind: &C::ScalarField,
@@ -124,7 +124,7 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for IPA<C, H> {
             r = vec![];
         }
 
-        transcript.absorb_point(P)?;
+        transcript.absorb_nonnative(P);
         let x = transcript.get_challenge(); // challenge value at which we evaluate
         let s = transcript.get_challenge();
         let U = C::generator().mul(s);
@@ -155,8 +155,8 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for IPA<C, H> {
                 R[j] = C::msm_unchecked(&G[..m], &a[m..]) + U.mul(inner_prod(&a[m..], &b[..m])?);
             }
             // get challenge for the j-th round
-            transcript.absorb_point(&L[j])?;
-            transcript.absorb_point(&R[j])?;
+            transcript.absorb_nonnative(&L[j]);
+            transcript.absorb_nonnative(&R[j]);
             u[j] = transcript.get_challenge();
 
             let uj = u[j];
@@ -218,21 +218,21 @@ impl<C: CurveGroup, const H: bool> CommitmentScheme<C, H> for IPA<C, H> {
 
     fn verify(
         params: &Self::VerifierParams,
-        transcript: &mut impl Transcript<C>,
+        transcript: &mut impl Transcript<C::ScalarField>,
         P: &C, // commitment
         proof: &Self::Proof,
     ) -> Result<(), Error> {
         let (p, _r) = (proof.0.clone(), proof.1);
         let k = p.L.len();
 
-        transcript.absorb_point(P)?;
+        transcript.absorb_nonnative(P);
         let x = transcript.get_challenge(); // challenge value at which we evaluate
         let s = transcript.get_challenge();
         let U = C::generator().mul(s);
         let mut u: Vec<C::ScalarField> = vec![C::ScalarField::zero(); k];
         for i in (0..k).rev() {
-            transcript.absorb_point(&p.L[i])?;
-            transcript.absorb_point(&p.R[i])?;
+            transcript.absorb_nonnative(&p.L[i]);
+            transcript.absorb_nonnative(&p.R[i]);
             u[i] = transcript.get_challenge();
         }
         let challenge = (x, U, u);
@@ -559,15 +559,15 @@ where
 
 #[cfg(test)]
 mod tests {
+    use ark_crypto_primitives::sponge::{poseidon::PoseidonSponge, CryptographicSponge};
     use ark_ec::Group;
     use ark_pallas::{constraints::GVar, Fq, Fr, Projective};
-    use ark_r1cs_std::{alloc::AllocVar, bits::boolean::Boolean, eq::EqGadget};
+    use ark_r1cs_std::eq::EqGadget;
     use ark_relations::r1cs::ConstraintSystem;
-    use ark_std::UniformRand;
     use std::ops::Mul;
 
     use super::*;
-    use crate::transcript::poseidon::{poseidon_canonical_config, PoseidonTranscript};
+    use crate::transcript::poseidon::poseidon_canonical_config;
 
     #[test]
     fn test_ipa() {
@@ -585,9 +585,9 @@ mod tests {
 
         let poseidon_config = poseidon_canonical_config::<Fr>();
         // init Prover's transcript
-        let mut transcript_p = PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_p = PoseidonSponge::<Fr>::new(&poseidon_config);
         // init Verifier's transcript
-        let mut transcript_v = PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_v = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         // a is the vector that we're committing
         let a: Vec<Fr> = std::iter::repeat_with(|| Fr::rand(&mut rng))
@@ -629,9 +629,9 @@ mod tests {
 
         let poseidon_config = poseidon_canonical_config::<Fr>();
         // init Prover's transcript
-        let mut transcript_p = PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_p = PoseidonSponge::<Fr>::new(&poseidon_config);
         // init Verifier's transcript
-        let mut transcript_v = PoseidonTranscript::<Projective>::new(&poseidon_config);
+        let mut transcript_v = PoseidonSponge::<Fr>::new(&poseidon_config);
 
         let mut a: Vec<Fr> = std::iter::repeat_with(|| Fr::rand(&mut rng))
             .take(d / 2)
@@ -659,15 +659,15 @@ mod tests {
         // circuit
         let cs = ConstraintSystem::<Fq>::new_ref();
 
-        let mut transcript_v = PoseidonTranscript::<Projective>::new(&poseidon_config);
-        transcript_v.absorb_point(&cm).unwrap();
+        let mut transcript_v = PoseidonSponge::<Fr>::new(&poseidon_config);
+        transcript_v.absorb_nonnative(&cm);
         let challenge = transcript_v.get_challenge(); // challenge value at which we evaluate
         let s = transcript_v.get_challenge();
         let U = Projective::generator().mul(s);
         let mut u: Vec<Fr> = vec![Fr::zero(); k];
         for i in (0..k).rev() {
-            transcript_v.absorb_point(&proof.0.L[i]).unwrap();
-            transcript_v.absorb_point(&proof.0.R[i]).unwrap();
+            transcript_v.absorb_nonnative(&proof.0.L[i]);
+            transcript_v.absorb_nonnative(&proof.0.R[i]);
             u[i] = transcript_v.get_challenge();
         }
 
