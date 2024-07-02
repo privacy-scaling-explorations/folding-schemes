@@ -119,7 +119,10 @@ impl<C: CurveGroup> LCCCS<C> {
     }
 }
 
-impl<C: CurveGroup<ScalarField: Absorb>> Absorb for LCCCS<C> {
+impl<C: CurveGroup> Absorb for LCCCS<C>
+where
+    C::ScalarField: Absorb,
+{
     fn to_sponge_bytes(&self, _dest: &mut Vec<u8>) {
         // This is never called
         unimplemented!()
