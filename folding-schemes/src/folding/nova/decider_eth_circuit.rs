@@ -441,10 +441,14 @@ where
             // imports here instead of at the top of the file, so we avoid having multiple
             // `#[cfg(not(test))]`
             use crate::commitment::pedersen::PedersenGadget;
-            use crate::folding::nova::cyclefold::{CycleFoldCommittedInstanceVar, CF_IO_LEN};
+            use crate::folding::{
+                circuits::cyclefold::{CycleFoldCommittedInstanceVar, CycleFoldConfig},
+                nova::NovaCycleFoldConfig,
+            };
             use ark_r1cs_std::ToBitsGadget;
 
-            let cf_u_dummy_native = CycleFoldCommittedInstance::<C2>::dummy(CF_IO_LEN);
+            let cf_u_dummy_native =
+                CycleFoldCommittedInstance::dummy(NovaCycleFoldConfig::<C1>::IO_LEN);
             let w_dummy_native = CycleFoldWitness::<C2>::new(
                 vec![C2::ScalarField::zero(); self.cf_r1cs.A.n_cols - 1 - self.cf_r1cs.l],
                 self.cf_E_len,
