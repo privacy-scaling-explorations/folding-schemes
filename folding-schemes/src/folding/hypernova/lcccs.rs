@@ -7,7 +7,6 @@ use ark_std::rand::Rng;
 use ark_std::Zero;
 
 use super::Witness;
-use crate::{ccs::CCS, transcript::Transcript};
 use crate::commitment::{
     pedersen::{Params as PedersenParams, Pedersen},
     CommitmentScheme,
@@ -16,6 +15,7 @@ use crate::transcript::AbsorbNonNative;
 use crate::utils::mle::dense_vec_to_dense_mle;
 use crate::utils::vec::mat_vec_mul;
 use crate::Error;
+use crate::{ccs::CCS, transcript::Transcript};
 
 /// Linearized Committed CCS instance
 #[derive(Debug, Clone, Eq, PartialEq)]

@@ -287,7 +287,7 @@ pub mod tests {
     use ark_poly_commit::kzg10::VerifierKey as KZGVerifierKey;
     use std::time::Instant;
 
-    use crate::commitment::kzg::{ProverKey as KZGProverKey};
+    use crate::commitment::kzg::ProverKey as KZGProverKey;
     use crate::commitment::pedersen::Pedersen;
     use crate::folding::nova::{get_cs_params_len, ProverParams};
     use crate::frontend::tests::CubicFCircuit;

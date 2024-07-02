@@ -122,7 +122,7 @@ pub mod tests {
     use crate::folding::circuits::nonnative::affine::NonNativeAffineVar;
 
     use super::*;
-    use ark_bn254::{g1::Config, constraints::GVar, Fq, Fr, G1Projective as G1};
+    use ark_bn254::{constraints::GVar, g1::Config, Fq, Fr, G1Projective as G1};
     use ark_ec::Group;
     use ark_ff::UniformRand;
     use ark_r1cs_std::{
